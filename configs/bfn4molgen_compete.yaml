@@ -1,0 +1,108 @@
+project_name: &_project_name !ENV "${LOGNAME}_geobfn"
+exp_name: compete
+debug: !SUB ${debug}
+test: !SUB ${test}
+no_wandb: !SUB ${no_wandb}
+logging_level: !SUB ${logging_level:-warning}
+
+#data
+dataset: 
+  name: "compete"
+  datadir: !ENV "./dataset/compete"
+  num_workers: 63
+  n_atom_types: &_n_atom_types 9
+  atom_decoder: ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl', 'Br']
+  atomic_nb: [1, 6, 7, 8, 9, 15, 16, 17, 35]
+  n_node_histogram: [0, 0, 0, 1, 2, 17, 35, 60, 115, 207, 314, 489, 772, 1000, 1331, 1582,
+                     1837, 2061, 2281, 2385, 2435, 2502, 2524, 2461, 2404, 2296, 2203, 2024,
+                     1904, 1668, 1479, 1265, 1078, 889, 763, 635, 556, 461, 350, 278, 228,
+                     174, 159, 130, 91, 84, 84, 58, 51, 29, 25, 15, 20, 6, 5, 4, 9, 6, 5, 4, 3]
+  remove_h: False
+  normalizer_dict: 
+    pos: 2.0
+    one_hot: 1.0
+    charges: 35.0
+  colors_dic: [
+      '#FFFFFF',  # H: White
+      '#808080',  # C: Grey
+      '#0000FF',  # N: Blue
+      '#FF0000',  # O: Red
+      '#90EE90',  # F: Light Green
+      '#FFA500',  # P: Orange
+      '#FFFF00',  # S: Yellow
+      '#00FF00',  # Cl: Green
+      '#A52A2A'   # Br: Brown
+  ]
+  # Approximate Covalent Radii (in Angstroms, Å) corresponding to atom_decoder
+  radius_dic: [
+    0.46,  # H
+    0.77,  # C
+    0.74,  # N
+    0.73,  # O
+    0.71,  # F
+    0.81,  # P
+    0.81,  # S
+    0.79,  # Cl
+    0.85   # Br
+  ]
+
+#model
+dynamics:
+  name: "EGNN"
+  in_node_nf: !SUB ${in_node_nf:-16}
+  hidden_nf: 256
+  n_layers: 9
+  sigma1_coord: !SUB ${sigma1_coord:-0.001}
+  sigma1_charges: !SUB ${sigma1_charges:-0.15}
+  bins: !SUB ${bins:-35}
+  beta1: !SUB ${beta1:-2.0}
+  sample_steps: !SUB ${sample_steps:-1000}
+  no_diff_coord: !SUB ${no_diff_coord:-False}
+  charge_discretised_loss: !SUB ${charge_discretised_loss:-True}
+  charge_clamp: !SUB ${charge_clamp:-True}
+  t_min: !SUB ${t_min:-0.0001}
+  
+
+
+optimization:
+  optimizer: "AdamW"
+  batch_size: &_bsize !SUB ${batch_size:-64}
+  lr: !SUB ${lr:-0.0001}
+  epochs: !SUB ${epochs}
+  difftime: !SUB ${difftime:-True}
+  weight_decay: !SUB ${weight_decay:-1e-12}
+  resume: !SUB ${resume:-False}
+  recover_trigger_loss: !SUB ${recover_trigger_loss:-500}
+  skip_count_limit: !SUB ${skip_count_limit:-3}
+  maximum_allowed_norm: !SUB ${maximum_allowed_norm:-10000}
+
+evaluation:
+  eval_data_num: !SUB ${eval_data_num:-1000}
+  batch_size: *_bsize
+  single_bond: False
+
+
+accounting:
+  logdir: &_logdir !PATHJOIN ["./logs/", *_project_name, !SUB "${exp_name}"]
+  wandb_logdir: *_logdir
+  dump_config_path: !PATHJOIN [*_logdir, "config.yaml"]
+  checkpoint_dir: &_checkpoint_dir !PATHJOIN [*_logdir, "checkpoints"]
+  ckpt_pattern: &_ckpt_pattern !SUB "${ckpt_pattern}"
+  checkpoint_path: !PATHJOIN [*_checkpoint_dir, *_ckpt_pattern]
+  generated_mol_dir: !PATHJOIN [*_logdir, "generated_mol"]
+  checkpoint_freq: !SUB ${checkpoint_freq:-20}
+  exp_version: !SUB ${exp_version:-None}
+
+#visualization
+visual:
+  save_mols: True
+  visual_nums: 10
+  visual_chain: True
+
+
+
+
+
+
+
+

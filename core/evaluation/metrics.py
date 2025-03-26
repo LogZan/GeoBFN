@@ -124,10 +124,14 @@ class BasicMolGenMetric(object):
         else:
             stable_valid_uniqueness = 0.0
 
+        # Calculate compound score as the product of three metrics
+        compound_score = validity * stable_valid_uniqueness * novelty
+
         return {
             "validity": validity,
             "uniqueness": uniqueness,
             "stable_valid_uniqueness": stable_valid_uniqueness,
             "novelty": novelty,
+            "compound_score": compound_score,
             **stability_dict,
         }

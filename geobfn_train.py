@@ -8,6 +8,7 @@ from torch.optim.optimizer import Optimizer
 from core.config.config import Config
 from core.model.bfn.bfn_base import bfn4MolEGNN
 from core.data.qm9_gen import QM9Gen
+from core.data.data_gen_compete import CompeteDataGen
 import torch
 torch.set_float32_matmul_precision('high')
 import os
@@ -70,7 +71,7 @@ class BFN4MolGenTrain(pl.LightningModule):
             batch.edge_index,  # [2, edge_num]
             batch.batch,  # [n_nodes]
         )
-        num_molecules = batch.idx.shape[0]
+        num_molecules = batch.ptr.shape[0] - 1
         # print("train_step",batch.charges)
         h = charges
         # print("h",h,h[:,-1:])
@@ -114,7 +115,7 @@ class BFN4MolGenTrain(pl.LightningModule):
             batch.edge_index,  # [2, edge_num]
             batch.batch,  # [n_nodes]
         )
-        num_molecules = batch.idx.shape[0]
+        num_molecules = batch.ptr.shape[0] - 1
         # print("train_step",batch.charges)
         h = charges
         # print("h",h,h[:,-1:])
@@ -282,6 +283,21 @@ if __name__ == "__main__":
             split="train" if not cfg.test else "test",
         )
         eval_loader = QM9Gen.initiate_evaluation_dataloader(
+            data_num=cfg.evaluation.eval_data_num if not cfg.debug else 50,
+            n_node_histogram=cfg.dataset.n_node_histogram,
+            batch_size=cfg.evaluation.batch_size,
+            num_workers=cfg.dataset.num_workers,
+        )
+    elif cfg.dataset.name == "compete":
+        train_loader = CompeteDataGen(
+            datadir=cfg.dataset.datadir,
+            batch_size=cfg.optimization.batch_size,
+            n_node_histogram=cfg.dataset.n_node_histogram,
+            debug=cfg.debug,
+            num_workers=cfg.dataset.num_workers,
+            split="train" if not cfg.test else "test",
+        )
+        eval_loader = CompeteDataGen.initiate_evaluation_dataloader(
             data_num=cfg.evaluation.eval_data_num if not cfg.debug else 50,
             n_node_histogram=cfg.dataset.n_node_histogram,
             batch_size=cfg.evaluation.batch_size,

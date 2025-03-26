@@ -7,7 +7,7 @@ from torch_geometric.data.separate import separate
 import torch
 from functools import partial
 import numpy as np
-from core.data.qm9 import QM9
+from core.data.data_compete import CompeteData
 from core.data.prefetch import PrefetchLoader
 import core.utils.ctxmgr as ctxmgr
 from absl import logging
@@ -39,7 +39,7 @@ def _make_global_adjacency_matrix(n_nodes):
     return full_adj, diag_bool
 
 
-class QM9Gen(DataLoader):
+class CompeteDataGen(DataLoader):
     num_atom_types = 9
 
     def __init__(
@@ -52,7 +52,7 @@ class QM9Gen(DataLoader):
         self.device = device
         self.max_n_nodes = len(n_node_histogram) + 10
         self.full_adj, self.diag_bool = _make_global_adjacency_matrix(self.max_n_nodes)
-        ds = QM9(
+        ds = CompeteData(
             root=datadir,
             transform=self.transform,
             split=kwargs.get("split", "train"),
@@ -121,7 +121,7 @@ class QM9Gen(DataLoader):
 if __name__ == "__main__":
     logging.set_verbosity(logging.DEBUG)
     cfg = {"datadir": "/sharefs/gongjj/project/data/qm9_debug", "batch_size": 64}
-    ds = QM9Gen(
+    ds = CompeteDataGen(
         cfg["datadir"],
         cfg["batch_size"],
         num_workers=63,
