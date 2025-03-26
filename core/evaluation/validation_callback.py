@@ -182,7 +182,7 @@ class MolVisualizationCallback(Callback):
                 sample_steps=pl_module.dynamics.sample_steps,
                 segment_ids=segment_ids,
             )
-            for i in range(len(theta_chain)):
+            for i in tqdm.tqdm(range(len(theta_chain))):
                 x, h = theta_chain[i]
                 atom_type = self.charge_decode(h[:, :1])
                 out_batch = copy.deepcopy(batch)

@@ -7,9 +7,10 @@ from torch_scatter import scatter_mean
 import torch.distributions as dist
 
 from core.module.egnn_new import EGNN
+from core.module.common import compose_context, ShiftedSoftplus
 import numpy as np
 from absl import logging
-
+from tqdm import tqdm
 
 def corrupt_t_pred(self, mu, t, gamma):
     # if t < self.t_min:
@@ -208,6 +209,12 @@ class bfn4MolEGNN(bfnBase):
         )  # [feature_num]
         # print(in_node_nf + int(condition_time),in_node_nf + int(condition_time)+1)
         self.K_c = torch.tensor(k_c).to(self.device)
+        self.hidden_dim = hidden_nf
+        self.v_inference = nn.Sequential(
+            nn.Linear(3, self.hidden_dim),
+            ShiftedSoftplus(),
+            nn.Linear(self.hidden_dim, bins),
+        )
 
     def gaussian_basis(self, x):
         """x: [batch_size, ...]"""
@@ -295,12 +302,6 @@ class bfn4MolEGNN(bfnBase):
         # )
 
         if self.charge_discretised_loss:
-            # print(
-            #     "mu_charge_t",
-            #     mu_charge_t.min().detach().cpu().numpy(),
-            #     mu_charge_t.max().detach().cpu().numpy(),
-            # )
-            # we do not predict the log sigma.
             sigma_charge_eps = torch.exp(sigma_charge_eps)
             mu_charge_x = (
                 mu_charge_t / gamma_charge
@@ -309,18 +310,6 @@ class bfn4MolEGNN(bfnBase):
             sigma_charge_x = (
                 torch.sqrt((1 - gamma_charge) / gamma_charge) * sigma_charge_eps
             )
-            # if not torch.all(sigma_charge_x.isfinite()) or not torch.all(
-            #     mu_charge_x.isfinite()
-            # ):
-            #     print("mu_charge_x", mu_charge_x.min(), mu_charge_x.max())
-            #     print("sigma_charge_x", sigma_charge_x.min(), sigma_charge_x.max())
-            #     print("mu_charge_t", mu_charge_t.min(), mu_charge_t.max())
-            #     print("gamma_charge", gamma_charge.min(), gamma_charge.max())
-            #     print("mu_charge_eps", mu_charge_eps.min(), mu_charge_eps.max())
-            #     print(
-            #         "sigma_charge_eps", sigma_charge_eps.min(), sigma_charge_eps.max()
-            #     )
-            #     raise ValueError("sigma_charge_x is not finite")
 
             if self.charge_clamp:
                 mu_charge_x = torch.clamp(mu_charge_x, min=-2, max=2)
@@ -332,14 +321,16 @@ class bfn4MolEGNN(bfnBase):
                 mu_charge_x, sigma_charge_x, k_r
             ) - self.discretised_cdf(mu_charge_x, sigma_charge_x, k_l)
             k_hat = p_o
-            # if not torch.all(k_hat.isfinite()):
-            #     print("k_hat", k_hat.min(), k_hat.max())
-            #     print("mu_charge_x", mu_charge_x.min(), mu_charge_x.max())
-            #     print("sigma_charge_x", sigma_charge_x.min(), sigma_charge_x.max())
-            #     print("k_r", k_r.min(), k_r.max())
-            #     print("k_l", k_l.min(), k_l.max())
-            #     print("p_o", p_o.min(), p_o.max())
-            #     raise ValueError("k_hat is not finite")
+
+            # for end_back_pmf
+            final_ligand_v = self.v_inference(eps_coord_pred)
+            if self.bins == 2:
+                p0_1 = torch.sigmoid(final_ligand_v)
+                p0_2 = 1 - p0_1
+                p0_h = torch.cat((p0_1, p0_2), dim=-1)
+            else:
+                p0_h = torch.nn.functional.softmax(final_ligand_v, dim=-1)
+
         else:
             """
             charge is taken as the continous variable.
@@ -352,7 +343,7 @@ class bfn4MolEGNN(bfnBase):
             if self.charge_clamp:
                 k_hat = torch.clamp(k_hat, min=-1, max=1)
 
-        return coord_pred, k_hat
+        return coord_pred, k_hat, p0_h
 
     def loss_one_step(
         self,
@@ -378,7 +369,7 @@ class bfn4MolEGNN(bfnBase):
         mu_coord = torch.where(mask, mu_coord, torch.zeros_like(mu_coord))
         mu_charge = torch.where(mask, mu_charge, torch.zeros_like(mu_charge))
         mu_coord = self.zero_center_of_mass(mu_coord, segment_ids=segment_ids)
-        coord_pred, k_hat = self.interdependency_modeling(
+        coord_pred, k_hat, p0_h = self.interdependency_modeling(
             t,
             mu_charge_t=mu_charge,
             mu_pos_t=mu_coord,
@@ -430,7 +421,7 @@ class bfn4MolEGNN(bfnBase):
         if sample_steps is None:
             sample_steps = self.sample_steps
         theta_traj = []
-        for i in range(1, sample_steps + 1):
+        for i in tqdm(range(1, sample_steps + 1)):
             t = torch.ones((n_nodes, 1)).to(self.device) * (i - 1) / sample_steps
             t = torch.clamp(t, min=self.t_min)
             gamma_coord = 1 - torch.pow(self.sigma1_coord, 2 * t)
@@ -438,7 +429,7 @@ class bfn4MolEGNN(bfnBase):
             mu_charge_t = torch.clamp(mu_charge_t, min=-10, max=10)
             mu_pos_t = torch.clamp(mu_pos_t, min=-10, max=10)
             mu_pos_t = self.zero_center_of_mass(mu_pos_t, segment_ids=segment_ids)
-            coord_pred, k_hat = self.interdependency_modeling(
+            coord_pred, k_hat, p0_h_pred = self.interdependency_modeling(
                 time=t,
                 mu_charge_t=mu_charge_t,
                 mu_pos_t=mu_pos_t,
@@ -459,9 +450,10 @@ class bfn4MolEGNN(bfnBase):
             y_coord = self.zero_center_of_mass(
                 torch.clamp(y_coord, min=-10, max=10), segment_ids
             )
-            mu_pos_t = (ro_coord * mu_pos_t + alpha_coord * y_coord) / (
-                ro_coord + alpha_coord
-            )
+            # mu_pos_t = (ro_coord * mu_pos_t + alpha_coord * y_coord) / (
+            #     ro_coord + alpha_coord
+            # )
+            mu_pos_t = self.continuous_var_bayesian_update(t, sigma1=self.sigma1_coord, x=coord_pred)[0]    # end back sampling
             ro_coord = ro_coord + alpha_coord
 
             if not self.charge_discretised_loss:
@@ -494,10 +486,11 @@ class bfn4MolEGNN(bfnBase):
                 mu_charge_t = (ro_charge * mu_charge_t + alpha_charge * y_charge) / (
                     ro_charge + alpha_charge
                 )
+                # mu_charge_t = self.discrete_var_bayesian_update(t, beta1=self.beta1, x=p0_h_pred, K=self.bins)    # end back sampling
                 ro_charge = ro_charge + alpha_charge
         mu_charge_t = torch.clamp(mu_charge_t, min=-10, max=10)
         mu_pos_t = torch.clamp(mu_pos_t, min=-10, max=10)
-        mu_pos_final, k_hat_final = self.interdependency_modeling(
+        mu_pos_final, k_hat_final, p0_h_pred = self.interdependency_modeling(
             time=torch.ones((n_nodes, 1)).to(self.device),
             mu_charge_t=mu_charge_t,
             mu_pos_t=mu_pos_t,

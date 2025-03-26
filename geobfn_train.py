@@ -247,7 +247,7 @@ if __name__ == "__main__":
     cfg = Config(**_args.__dict__)
     if cfg.debug:
         cfg.exp_name = "debug"
-        cfg.dynamics.sample_steps = 500
+        cfg.dynamics.sample_steps = 50
         cfg.optimization.epochs = 2
         cfg.accounting.checkpoint_freq = 1
     
@@ -300,7 +300,7 @@ if __name__ == "__main__":
         check_val_every_n_epoch=cfg.accounting.checkpoint_freq,
         devices=1,
         logger=wandb_logger,
-        num_sanity_val_steps=2,
+        num_sanity_val_steps=0,
         # overfit_batches=10,
         # gradient_clip_val=1.0,
         callbacks=[
