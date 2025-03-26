@@ -245,6 +245,12 @@ if __name__ == "__main__":
     _args = parser.parse_args()
     # _args, unknown = parser.parse_known_args()
     cfg = Config(**_args.__dict__)
+    if cfg.debug:
+        cfg.exp_name = "debug"
+        cfg.dynamics.sample_steps = 500
+        cfg.optimization.epochs = 2
+        cfg.accounting.checkpoint_freq = 1
+    
     print(f"The config of this process is:\n{cfg}")
     logging_level = {
         "info": logging.INFO,
@@ -279,6 +285,7 @@ if __name__ == "__main__":
             data_num=cfg.evaluation.eval_data_num if not cfg.debug else 50,
             n_node_histogram=cfg.dataset.n_node_histogram,
             batch_size=cfg.evaluation.batch_size,
+            num_workers=cfg.dataset.num_workers,
         )
     else:
         raise NotImplementedError
@@ -292,12 +299,10 @@ if __name__ == "__main__":
         max_epochs=cfg.optimization.epochs,
         check_val_every_n_epoch=cfg.accounting.checkpoint_freq,
         devices=1,
-        # overfit_batches=10,
         logger=wandb_logger,
         num_sanity_val_steps=2,
         # overfit_batches=10,
         # gradient_clip_val=1.0,
-        # devices=1,
         callbacks=[
             RecoverCallback(
                 latest_ckpt=cfg.accounting.checkpoint_path,

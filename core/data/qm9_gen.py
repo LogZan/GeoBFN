@@ -61,7 +61,13 @@ class QM9Gen(DataLoader):
         if kwargs.get("debug", False):
             ds = ds[:129]
 
-        super().__init__(ds, batch_size=batch_size, shuffle=kwargs.get("shuffle", True))
+        # Set default DataLoader parameters for better performance
+        dataloader_kwargs = {
+            'num_workers': kwargs.get('num_workers', 63),
+            'shuffle': kwargs.get('shuffle', True),
+        }
+        
+        super().__init__(ds, batch_size=batch_size, **dataloader_kwargs)
 
     def transform(self, data):
         data.pos = remove_mean(data.pos, dim=0).to(
@@ -84,7 +90,7 @@ class QM9Gen(DataLoader):
         return full_adj[:, ~diag_bool]
 
     @classmethod
-    def initiate_evaluation_dataloader(cls, data_num, n_node_histogram, batch_size=4):
+    def initiate_evaluation_dataloader(cls, data_num, n_node_histogram, batch_size=4, **kwargs):
         """
         Initiate a dataloader for evaluation, which will generate data from prior distribution with n_node_histogram
         """
@@ -109,7 +115,7 @@ class QM9Gen(DataLoader):
         data_list = list(map(_evaluate_transform, data_list))
         ds = InMemoryDataset(transform=_evaluate_transform)
         ds.data, ds.slices = ds.collate(data_list)
-        return DataLoader(ds, batch_size=batch_size, shuffle=False)
+        return DataLoader(ds, batch_size=batch_size, shuffle=False, **kwargs)
 
 
 if __name__ == "__main__":
