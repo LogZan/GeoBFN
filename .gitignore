@@ -6,4 +6,4 @@ logs/
 dataset/
 ssh/
 gitconfig
-
+.vscode

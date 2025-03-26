@@ -12,7 +12,7 @@ from torch_geometric.data import (
     download_url,
     extract_zip,
 )
-from torch_geometric.utils import one_hot, scatter
+# from torch_geometric.utils import one_hot, scatter
 import numpy as np
 
 HAR2EV = 27.211386246

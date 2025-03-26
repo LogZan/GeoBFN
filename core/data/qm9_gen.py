@@ -1,7 +1,7 @@
 # from torch_geometric.datasets import QM9
 from torch_geometric.data import Data
 from torch_geometric.data import Batch
-from torch_geometric.data import DataLoader
+from torch_geometric.loader import DataLoader
 from torch_geometric.data import InMemoryDataset
 from torch_geometric.data.separate import separate
 import torch
