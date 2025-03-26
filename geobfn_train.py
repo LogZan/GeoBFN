@@ -9,6 +9,7 @@ from core.config.config import Config
 from core.model.bfn.bfn_base import bfn4MolEGNN
 from core.data.qm9_gen import QM9Gen
 import torch
+torch.set_float32_matmul_precision('high')
 import os
 import datetime, pytz
 from core.losses import loss

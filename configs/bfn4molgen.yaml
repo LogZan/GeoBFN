@@ -9,7 +9,7 @@ logging_level: !SUB ${logging_level:-warning}
 dataset: 
   name: "qm9"
   datadir: !ENV "./dataset/qm9"
-  num_workers: 4
+  num_workers: 63
   n_atom_types: &_n_atom_types 5
   atom_decoder: ['H', 'C', 'N', 'O', 'F']
   atomic_nb: [1, 6, 7, 8, 9]

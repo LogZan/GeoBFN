@@ -118,7 +118,7 @@ if __name__ == "__main__":
     ds = QM9Gen(
         cfg["datadir"],
         cfg["batch_size"],
-        num_workers=4,
+        num_workers=63,
         persistent_workers=True,
         prefetch_factor=1,
         pin_memory=True,
