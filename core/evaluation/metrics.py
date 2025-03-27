@@ -10,6 +10,8 @@ from core.evaluation.utils import (
 )
 from typing import List, Dict, Tuple
 from tqdm import tqdm
+import numpy as np
+from scipy.spatial.distance import jensenshannon
 
 class BasicMolGenMetric(object):
     def __init__(
@@ -19,6 +21,16 @@ class BasicMolGenMetric(object):
         self.dataset_smiles_set = dataset_smiles_set
         self.type_one_hot = type_one_hot
         self.single_bond = single_bond
+        
+        # Reference histograms
+        self.element_histogram = np.array([503261, 390055, 87438, 67606, 7875, 1388, 13832, 5878, 1184])
+        self.element_histogram = self.element_histogram / np.sum(self.element_histogram)  # Normalize
+        
+        self.n_node_histogram = np.array([0, 0, 0, 1, 2, 17, 35, 60, 115, 207, 314, 489, 772, 1000, 1331, 1582,
+                     1837, 2061, 2281, 2385, 2435, 2502, 2524, 2461, 2404, 2296, 2203, 2024,
+                     1904, 1668, 1479, 1265, 1078, 889, 763, 635, 556, 461, 350, 278, 228,
+                     174, 159, 130, 91, 84, 84, 58, 51, 29, 25, 15, 20, 6, 5, 4, 9, 6, 5, 4, 3])
+        self.n_node_histogram = self.n_node_histogram / np.sum(self.n_node_histogram)  # Normalize
 
     def compute_stability(self, generated2idx: List[Tuple[Data, int]]):
         n_samples = len(generated2idx)
@@ -86,6 +98,54 @@ class BasicMolGenMetric(object):
                 num_novel += 1
         return novel, num_novel / (len(unique) + 1e-12)
 
+    def compute_size_distribution(self, valid_mols):
+        """Compute size distribution of generated molecules"""
+        size_counts = np.zeros(len(self.n_node_histogram))
+        
+        for smiles, _ in valid_mols:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                num_atoms = mol.GetNumAtoms()
+                if num_atoms < len(size_counts):
+                    size_counts[num_atoms] += 1
+        
+        # Normalize
+        if np.sum(size_counts) > 0:
+            size_distribution = size_counts / np.sum(size_counts)
+        else:
+            size_distribution = size_counts
+            
+        # Calculate similarity with Jensen-Shannon divergence
+        # Lower values mean more similar distributions
+        js_distance = jensenshannon(size_distribution, self.n_node_histogram)
+        size_similarity = 1.0 - min(js_distance, 1.0)  # Convert to similarity score
+        
+        return size_similarity
+
+    def compute_element_distribution(self, valid_mols):
+        """Compute element distribution of generated molecules"""
+        element_counts = np.zeros(len(self.atom_decoder))
+        
+        for smiles, _ in valid_mols:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None:
+                for atom in mol.GetAtoms():
+                    symbol = atom.GetSymbol()
+                    if symbol in self.atom_decoder:
+                        element_counts[self.atom_decoder.index(symbol)] += 1
+        
+        # Normalize
+        if np.sum(element_counts) > 0:
+            element_distribution = element_counts / np.sum(element_counts)
+        else:
+            element_distribution = element_counts
+        
+        # Calculate similarity with Jensen-Shannon divergence
+        js_distance = jensenshannon(element_distribution, self.element_histogram)
+        element_similarity = 1.0 - min(js_distance, 1.0)  # Convert to similarity score
+        
+        return element_similarity
+
     def evaluate(self, generated: List[Data]):
         """generated: list of pairs (positions: n x 3, atom_types: n [int])
         the positions and atom types should already be masked."""
@@ -94,7 +154,7 @@ class BasicMolGenMetric(object):
             generated2idx
         )
         valid, validity, _ = self.compute_validity(generated2idx)
-        _, _, return_generated2idx_list = self.compute_validity(
+        _, _, valid_mols = self.compute_validity(
             return_generated2idx_list
         )
         print(f"Validity over {len(generated)} molecules: {validity * 100 :.2f}%")
@@ -112,26 +172,36 @@ class BasicMolGenMetric(object):
             novelty = 0.0
             uniqueness = 0.0
             unique = None
-        if len(return_generated2idx_list) > 0:
+        if len(valid_mols) > 0:
             _, stable_valid_uniqueness = self.compute_uniqueness(
-                [g for g, i in return_generated2idx_list]
+                [g for g, i in valid_mols]
             )
             stable_valid_uniqueness = (
                 stable_valid_uniqueness
-                * len(return_generated2idx_list)
+                * len(valid_mols)
                 / len(generated)
             )
+            
+            # Compute distribution similarities
+            size_similarity = self.compute_size_distribution(valid_mols)
+            element_similarity = self.compute_element_distribution(valid_mols)
+            print(f"Size distribution similarity: {size_similarity:.4f}")
+            print(f"Element distribution similarity: {element_similarity:.4f}")
         else:
             stable_valid_uniqueness = 0.0
+            size_similarity = 0.0
+            element_similarity = 0.0
 
-        # Calculate compound score as the product of three metrics
-        compound_score = validity * stable_valid_uniqueness * novelty
+        # Calculate combined score as the average of three metrics
+        combined_score = (validity + stable_valid_uniqueness + novelty) / 3
 
         return {
             "validity": validity,
             "uniqueness": uniqueness,
             "stable_valid_uniqueness": stable_valid_uniqueness,
             "novelty": novelty,
-            "compound_score": compound_score,
+            "combined_score": combined_score,
+            "size_similarity": size_similarity,
+            "element_similarity": element_similarity,
             **stability_dict,
         }
