@@ -5,7 +5,7 @@ import os
 import pytz
 import pickle
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, List
 
 import pytorch_lightning as pl
@@ -132,13 +132,13 @@ class BFN4MolSampler(pl.LightningModule):
 
 
 if __name__ == "__main__":
+    # Record start time
+    script_start_time = datetime.now()
+    
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--config_file", type=str, required=True, help="Path to the config YAML file used for training."
     )
-    # parser.add_argument(
-    #     "--checkpoint_path", type=str, required=True, help="Path to the model checkpoint (.ckpt)."
-    # )
     parser.add_argument(
         "--num_samples", type=int, default=10000, help="Number of molecules to generate."
     )
@@ -149,8 +149,6 @@ if __name__ == "__main__":
     parser.add_argument("--logging_level", type=str, default="info", choices=["debug", "info", "warning", "error", "fatal"])
     parser.add_argument("--debug", action="store_true", help="Enable debug mode (overrides some settings).")
     parser.add_argument("--no_wandb", action="store_true", help="Disable WandB logging.")
-    # EMA parameters might be needed if EMA callback is used and weights weren't saved separately
-    # parser.add_argument("--ema_decay", type=float, default=0.9999, help="EMA decay rate.")
 
     _args = parser.parse_args()
 
@@ -164,15 +162,13 @@ if __name__ == "__main__":
     # cfg.exp_name = _args.exp_name
     cfg.debug = _args.debug
     # cfg.no_wandb = _args.no_wandb
-    # cfg.accounting.checkpoint_path = cfg.accounting.checkpoint_path # Important: Set checkpoint path in config
 
     if cfg.debug:
         cfg.exp_name = "debug_sampling"
         _args.num_samples = 50 # Reduce samples in debug mode
         cfg.evaluation.eval_data_num = 50
         cfg.dynamics.sample_steps = 50 # Faster sampling for debug
-        # Potentially disable wandb in debug mode?
-        # cfg.no_wandb = True
+        cfg.no_wandb = True
 
     print(f"--- Sampling Configuration ---")
     print(cfg)
@@ -195,7 +191,6 @@ if __name__ == "__main__":
         project=cfg.project_name,
         offline=cfg.debug or cfg.no_wandb,
         save_dir=cfg.accounting.wandb_logdir,
-        # version= # Can set a specific version id if needed
     )
     wandb_logger.log_hyperparams(cfg.todict()) # Log the effective config
 
@@ -359,5 +354,19 @@ if __name__ == "__main__":
         except Exception as e:
             logging.error(f"Error finishing wandb run: {e}")
 
-
-    print("Sampling script finished.")
+    # Calculate total execution time
+    script_end_time = datetime.now()
+    total_runtime = script_end_time - script_start_time
+    
+    # Format the runtime in a human-friendly way
+    hours, remainder = divmod(total_runtime.total_seconds(), 3600)
+    minutes, seconds = divmod(remainder, 60)
+    
+    runtime_str = ""
+    if hours > 0:
+        runtime_str += f"{int(hours)}h "
+    if minutes > 0 or hours > 0:
+        runtime_str += f"{int(minutes)}m "
+    runtime_str += f"{int(seconds)}s"
+    
+    print(f"Sampling script finished. Total runtime: {runtime_str}")
