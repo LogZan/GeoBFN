@@ -299,7 +299,7 @@ if __name__ == "__main__":
     
     # Get timestamp for filename
     timestamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M")
-    output_file = os.path.join(output_dir, f"output{timestamp}.pkl")
+    output_file = os.path.join(output_dir, f"output_{timestamp}.pkl")
     
     # Process each molecule
     logging.info("Processing molecules for pickle file...")
