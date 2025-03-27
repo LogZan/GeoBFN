@@ -32,7 +32,7 @@ from core.evaluation.validation_callback import (
 from absl import logging
 from core.data.prefetch import PrefetchLoader
 import core.utils.ctxmgr as ctxmgr
-
+from tqdm import tqdm
 
 class BFN4MolGenTrain(pl.LightningModule):
     def __init__(self, config: Config):
@@ -121,7 +121,7 @@ class BFN4MolGenTrain(pl.LightningModule):
         # print("h",h,h[:,-1:])
         in_data = []
         out_data = []
-        for i in range(1, sample_steps + 1):
+        for i in tqdm(range(1, sample_steps + 1)):
             t = torch.ones((n_nodes, 1)).to(self.device) * (i - 1) / sample_steps
             t = torch.clamp(t, min=self.cfg.dynamics.t_min)
             posloss, charge_loss, assets = self.dynamics.loss_one_step(
@@ -302,6 +302,7 @@ if __name__ == "__main__":
             n_node_histogram=cfg.dataset.n_node_histogram,
             batch_size=cfg.evaluation.batch_size,
             num_workers=cfg.dataset.num_workers,
+            max_n_nodes=60
         )
     else:
         raise NotImplementedError
@@ -337,12 +338,12 @@ if __name__ == "__main__":
             ),
             ModelCheckpoint(
                 dirpath=cfg.accounting.checkpoint_dir,
-                filename="{epoch}-{mol_stable:2f}-{atm_stable:2f}-{validity:2f}",
+                filename="{epoch}-{compound_score:2f}-{validity:2f}-{stable_valid_uniqueness:2f}-{novelty:2f}",
                 every_n_epochs=cfg.accounting.checkpoint_freq,
                 save_last=True,
                 save_top_k=20,
                 mode="max",
-                monitor="atm_stable",
+                monitor="compound_score",
             ),
             MolVisualizationCallback(
                 atomic_nb=cfg.dataset.atomic_nb,

@@ -190,6 +190,19 @@ class NormalizerCallback(Callback):
             m.pos, m.x = self.quantize(m.pos, m.x)
             # m.charges = m.charges * self.normalizer_dict.charges * 0.5 + 0.5 # no chage output
 
+    def on_predict_batch_end(
+        self,
+        trainer: Trainer,
+        pl_module: LightningModule,
+        outputs: STEP_OUTPUT,
+        batch: Any,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> None:
+        self.on_validation_batch_end(
+            trainer, pl_module, outputs, batch, batch_idx, dataloader_idx
+        )
+
     def on_test_batch_start(
         self, trainer: Trainer, pl_module: LightningModule, batch: Any, batch_idx: int
     ) -> None:

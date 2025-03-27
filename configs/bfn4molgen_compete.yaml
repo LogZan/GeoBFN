@@ -1,5 +1,5 @@
 project_name: &_project_name !ENV "${LOGNAME}_geobfn"
-exp_name: compete
+exp_name: &_exp_name "compete"
 debug: !SUB ${debug}
 test: !SUB ${test}
 no_wandb: !SUB ${no_wandb}
@@ -83,7 +83,7 @@ evaluation:
 
 
 accounting:
-  logdir: &_logdir !PATHJOIN ["./logs/", *_project_name, !SUB "${exp_name}"]
+  logdir: &_logdir !PATHJOIN ["./logs/", *_project_name, *_exp_name]
   wandb_logdir: *_logdir
   dump_config_path: !PATHJOIN [*_logdir, "config.yaml"]
   checkpoint_dir: &_checkpoint_dir !PATHJOIN [*_logdir, "checkpoints"]

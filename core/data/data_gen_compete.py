@@ -90,11 +90,10 @@ class CompeteDataGen(DataLoader):
         return full_adj[:, ~diag_bool]
 
     @classmethod
-    def initiate_evaluation_dataloader(cls, data_num, n_node_histogram, batch_size=4, **kwargs):
+    def initiate_evaluation_dataloader(cls, data_num, n_node_histogram, batch_size=4, max_n_nodes=60, **kwargs):
         """
         Initiate a dataloader for evaluation, which will generate data from prior distribution with n_node_histogram
         """
-        max_n_nodes = len(n_node_histogram) + 10
         n_node_histogram = np.array(n_node_histogram / np.sum(n_node_histogram))
         full_adj, diag_bool = _make_global_adjacency_matrix(max_n_nodes)
         make_adjacency_matrix = lambda x: full_adj[:, :x, :x].reshape(2, -1)[
