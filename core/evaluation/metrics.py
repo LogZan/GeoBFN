@@ -9,7 +9,7 @@ from core.evaluation.utils import (
     check_stability,
 )
 from typing import List, Dict, Tuple
-
+from tqdm import tqdm
 
 class BasicMolGenMetric(object):
     def __init__(
@@ -26,7 +26,7 @@ class BasicMolGenMetric(object):
         nr_stable_bonds = 0
         n_atoms = 0
         return_list = []
-        for data, idx in generated2idx:
+        for data, idx in tqdm(generated2idx, desc="Computing stability"):
             positions = data.pos
             atom_type = data.x
             stability_results = check_stability(
@@ -55,7 +55,7 @@ class BasicMolGenMetric(object):
         """generated: list of couples (positions, atom_types)"""
         valid = []
         return_list = []
-        for graph, idx in generated2idx:
+        for graph, idx in tqdm(generated2idx, desc="Computing validity"):
             mol, smiles = convert_atomcloud_to_mol_smiles(
                 positions=graph.pos,
                 atom_type=graph.x,
