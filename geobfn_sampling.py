@@ -3,6 +3,9 @@ import copy
 import datetime
 import os
 import pytz
+import pickle
+import numpy as np
+from datetime import datetime
 from typing import Any, Optional, List
 
 import pytorch_lightning as pl
@@ -186,7 +189,7 @@ if __name__ == "__main__":
 
     # --- Logger ---
     os.makedirs(cfg.accounting.wandb_logdir, exist_ok=True)
-    run_name = cfg.exp_name + f'_sampling_{datetime.datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")}'
+    run_name = cfg.exp_name + f'_sampling_{datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")}'
     wandb_logger = WandbLogger(
         name=run_name,
         project=cfg.project_name,
@@ -288,8 +291,62 @@ if __name__ == "__main__":
 
     logging.info(f"Successfully generated {len(generated_molecules)} molecules.")
 
-    # --- Post-processing (Optional) ---
+    # --- Post-processing ---
 
+    # Create output directory if it doesn't exist
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Get timestamp for filename
+    timestamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M")
+    output_file = os.path.join(output_dir, f"output{timestamp}.pkl")
+    
+    # Process each molecule
+    logging.info("Processing molecules for pickle file...")
+    processed_molecules = []
+    
+    # Get atomic symbols from configuration
+    atomic_symbols = cfg.dataset.atom_decoder
+    remove_h = cfg.dataset.remove_h  # Check if H is removed from consideration
+    
+    for mol_idx, mol in enumerate(generated_molecules):
+        if mol_idx % 100 == 0:
+            logging.info(f"Processing molecule {mol_idx}/{len(generated_molecules)}")
+        
+        # Get number of atoms
+        natoms = mol.num_nodes
+        
+        # Convert one-hot encoded atom types to element symbols
+        x_onehot = mol.x.cpu().numpy()  # [num_nodes, atom_type_num]
+        elements = []
+        
+        for atom_idx in range(natoms):
+            # Get the index of the 1 in the one-hot encoding
+            atom_type_idx = np.argmax(x_onehot[atom_idx])
+            # Map to the corresponding element from atomic_symbols
+            # If remove_h is True, need to offset the index
+            element_symbol = atomic_symbols[atom_type_idx + remove_h]
+            elements.append(element_symbol)
+        
+        # Get coordinates
+        coordinates = mol.pos.cpu().numpy().tolist()  # Convert to Python list
+        
+        # Create molecule dictionary
+        molecule_dict = {
+            'natoms': natoms,
+            'elements': elements,
+            'coordinates': coordinates
+        }
+        
+        processed_molecules.append(molecule_dict)
+    
+    # Save to pickle file
+    with open(output_file, 'wb') as f:
+        pickle.dump(processed_molecules, f)
+    
+    logging.info(f"Saved {len(processed_molecules)} molecules to {output_file}")
+
+    # --- Finalize WandB ---
     wandb_logger.finalize("success")
     logging.info("WandB logging finalized.")
     if not cfg.no_wandb:
