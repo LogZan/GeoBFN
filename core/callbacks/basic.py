@@ -259,6 +259,7 @@ class RecoverCallback(Callback):
             ckpt_path = ""
         if os.path.exists(ckpt_path) and self.resume:
             logging.info(f"recover from checkpoint: {ckpt_path}")
+            print(f"recover from checkpoint: {ckpt_path}")
             checkpoint = torch.load(ckpt_path)
             pl_module.load_state_dict(checkpoint["state_dict"])
             # pl_module.load_from_checkpoint(self.latest_ckpt)

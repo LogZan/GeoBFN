@@ -338,12 +338,12 @@ if __name__ == "__main__":
             ),
             ModelCheckpoint(
                 dirpath=cfg.accounting.checkpoint_dir,
-                filename="{epoch}-{compound_score:2f}-{validity:2f}-{stable_valid_uniqueness:2f}-{novelty:2f}",
+                filename="{epoch}-{combined_score:2f}-{validity:2f}-{stable_valid_uniqueness:2f}-{novelty:2f}",
                 every_n_epochs=cfg.accounting.checkpoint_freq,
                 save_last=True,
                 save_top_k=20,
                 mode="max",
-                monitor="compound_score",
+                monitor="combined_score",
             ),
             MolVisualizationCallback(
                 atomic_nb=cfg.dataset.atomic_nb,

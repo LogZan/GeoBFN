@@ -243,7 +243,7 @@ def save_distributions_to_csv(mol_size_dist, ref_size_dist, element_dist, ref_el
 
 def main():
     parser = argparse.ArgumentParser(description='Evaluate molecules from pickle file')
-    parser.add_argument('--input', type=str, default='output/output_20250327_1605.pkl', help='Path to the input pickle file')
+    parser.add_argument('--input', type=str, default='output/output20250327_1605.pkl', help='Path to the input pickle file')
     parser.add_argument('--reference', type=str, default='dataset/compete/data_all.pkl', 
                         help='Path to the reference pickle file for comparison')
     parser.add_argument('--cores', type=int, default=10, help='Number of CPU cores to use')

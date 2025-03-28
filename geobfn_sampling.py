@@ -161,7 +161,7 @@ if __name__ == "__main__":
     # cfg.evaluation.eval_data_num = _args.num_samples # Set number of samples for evaluation context
     # cfg.exp_name = _args.exp_name
     cfg.debug = _args.debug
-    # cfg.no_wandb = _args.no_wandb
+    cfg.no_wandb = _args.no_wandb
 
     if cfg.debug:
         cfg.exp_name = "debug_sampling"
