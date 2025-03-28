@@ -37,11 +37,6 @@ class BFN4MolSampler(pl.LightningModule):
     def __init__(self, config: Config):
         super().__init__()
         self.cfg = config
-        
-        # Define target element distribution if specified in config
-        element_distribution = getattr(self.cfg.dataset, 'element_histogram', None)
-        element_dist_weight = getattr(self.cfg.dynamics, 'element_dist_weight', 1.0)
-        
         # Initialize the core dynamics model
         self.dynamics = bfn4MolEGNN(
             in_node_nf=self.cfg.dynamics.in_node_nf,
@@ -56,8 +51,11 @@ class BFN4MolSampler(pl.LightningModule):
             charge_discretised_loss=self.cfg.dynamics.charge_discretised_loss,
             charge_clamp=self.cfg.dynamics.charge_clamp,
             t_min=self.cfg.dynamics.t_min,
-            element_distribution=element_distribution,
-            element_dist_weight=element_dist_weight,
+            element_histogram=getattr(self.cfg.dataset, 'element_histogram', None),
+            atom_decoder=self.cfg.dataset.atom_decoder,
+            remove_h=self.cfg.dataset.remove_h,
+            lambda_dist=getattr(self.cfg.dynamics, 'lambda_dist', 0.1),
+            dist_loss_temperature=getattr(self.cfg.dynamics, 'dist_loss_temperature', 0.1),
         )
         self.save_hyperparameters(logger=False)
         self.atomic_nb = self.cfg.dataset.atomic_nb
@@ -156,24 +154,17 @@ if __name__ == "__main__":
     parser.add_argument("--logging_level", type=str, default="info", choices=["debug", "info", "warning", "error", "fatal"])
     parser.add_argument("--debug", action="store_true", help="Enable debug mode (overrides some settings).")
     parser.add_argument("--no_wandb", action="store_true", help="Disable WandB logging.")
-    parser.add_argument(
-        "--element_dist_weight", type=float, default=1.0, 
-        help="Weight for element distribution regularization"
-    )
 
     _args = parser.parse_args()
 
     # Load config and potentially override with command-line args
     cfg = Config(config_file=_args.config_file) # Load base config first
-    
-    # Add target element distribution to config if not already present
-    if not hasattr(cfg.dataset, 'element_histogram'):
-        # Default distribution from the prompt
-        cfg.dataset.element_histogram = [503261, 390055, 87438, 67606, 7875, 1388, 13832, 5878, 1184]
-    
-    # Set element distribution weight from command line if provided
-    cfg.dynamics.element_dist_weight = _args.element_dist_weight
-
+    # Update config with command-line args (careful not to overwrite nested dicts unintentionally)
+    # Simple override for top-level args:
+    # cfg.optimization.batch_size = _args.batch_size # Use generation batch size
+    # cfg.evaluation.batch_size = _args.batch_size # Align evaluation batch size
+    # cfg.evaluation.eval_data_num = _args.num_samples # Set number of samples for evaluation context
+    # cfg.exp_name = _args.exp_name
     cfg.debug = _args.debug
     cfg.no_wandb = _args.no_wandb
 
@@ -186,8 +177,6 @@ if __name__ == "__main__":
 
     print(f"--- Sampling Configuration ---")
     print(cfg)
-    print(f"Element distribution: {cfg.dataset.element_histogram}")
-    print(f"Element distribution weight: {cfg.dynamics.element_dist_weight}")
     print(f"Number of samples to generate: {_args.num_samples}")
     print(f"Checkpoint path: {cfg.accounting.checkpoint_path}")
     print(f"-----------------------------")

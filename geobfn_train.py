@@ -38,11 +38,6 @@ class BFN4MolGenTrain(pl.LightningModule):
     def __init__(self, config: Config):
         super().__init__()
         self.cfg = config
-        
-        # Get element distribution from config
-        element_distribution = getattr(self.cfg.dataset, 'element_histogram', None)
-        element_dist_weight = getattr(self.cfg.dynamics, 'element_dist_weight', 1.0)
-        
         self.dynamics = bfn4MolEGNN(
             self.cfg.dynamics.in_node_nf,
             self.cfg.dynamics.hidden_nf,
@@ -56,8 +51,11 @@ class BFN4MolGenTrain(pl.LightningModule):
             charge_discretised_loss=self.cfg.dynamics.charge_discretised_loss,
             charge_clamp=self.cfg.dynamics.charge_clamp,
             t_min=self.cfg.dynamics.t_min,
-            element_distribution=element_distribution,
-            element_dist_weight=element_dist_weight,
+            element_histogram=getattr(self.cfg.dataset, 'element_histogram', None),
+            atom_decoder=self.cfg.dataset.atom_decoder,
+            remove_h=self.cfg.dataset.remove_h,
+            lambda_dist=getattr(self.cfg.dynamics, 'lambda_dist', 0.1),
+            dist_loss_temperature=getattr(self.cfg.dynamics, 'dist_loss_temperature', 0.1),
         )
         # [ time, h_t, pos_t, edge_index]
         self.train_losses = []
@@ -101,24 +99,11 @@ class BFN4MolGenTrain(pl.LightningModule):
 
         loss = torch.mean(posloss + charge_loss)
 
-        # Log individual loss components
         self.log(
             "loss",
             loss,
             on_step=True,
             prog_bar=True,
-            batch_size=self.cfg.optimization.batch_size,
-        )
-        self.log(
-            "posloss",
-            torch.mean(posloss),
-            on_step=True,
-            batch_size=self.cfg.optimization.batch_size,
-        )
-        self.log(
-            "charge_loss",
-            torch.mean(charge_loss),
-            on_step=True,
             batch_size=self.cfg.optimization.batch_size,
         )
 
@@ -309,21 +294,10 @@ if __name__ == "__main__":
     parser.add_argument("--scheduler_patience", type=int, default=10)
     parser.add_argument("--scheduler_min_lr", type=float, default=1e-6)
     parser.add_argument("--scheduler_max_iters", type=int, default=20000)
-    parser.add_argument("--element_dist_weight", type=float, default=1.0, 
-                        help="Weight for element distribution regularization")
 
     _args = parser.parse_args()
     # _args, unknown = parser.parse_known_args()
     cfg = Config(**_args.__dict__)
-    
-    # Add target element distribution to config if not already present
-    if not hasattr(cfg.dataset, 'element_histogram'):
-        # Default distribution from the prompt
-        cfg.dataset.element_histogram = [503261, 390055, 87438, 67606, 7875, 1388, 13832, 5878, 1184]
-    
-    # Set element distribution weight
-    cfg.dynamics.element_dist_weight = _args.element_dist_weight
-    
     if cfg.debug:
         cfg.exp_name = "debug"
         cfg.dynamics.sample_steps = 50
@@ -331,9 +305,6 @@ if __name__ == "__main__":
         cfg.accounting.checkpoint_freq = 1
     
     print(f"The config of this process is:\n{cfg}")
-    print(f"Element distribution: {cfg.dataset.element_histogram}")
-    print(f"Element distribution weight: {cfg.dynamics.element_dist_weight}")
-    
     logging_level = {
         "info": logging.INFO,
         "debug": logging.DEBUG,
