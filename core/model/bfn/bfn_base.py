@@ -418,11 +418,12 @@ class bfn4MolEGNN(bfnBase):
 
         if self.charge_discretised_loss:
             k_c = self.K_c.unsqueeze(-1).unsqueeze(0)
-            e_k_hat = (k_hat * k_c).sum(dim=1, keepdim=True)
+            e_k_hat = (k_hat * k_c).sum(dim=1)
             charge_loss = self.ctime4discreteised_loss(
                 t=t, sigma1=self.sigma1_charges, x_pred=e_k_hat, x=charges
             )
             # Use expected charge for distribution regularization
+            e_k_hat = (k_hat * k_c).sum(dim=1, keepdim=True)
             e_k_c = self.K_c[(e_k_hat - k_c).abs().argmin(dim=1)]
             pred_charge_feature = e_k_c
         else:
