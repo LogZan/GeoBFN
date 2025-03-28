@@ -1,5 +1,5 @@
 project_name: &_project_name !ENV "${LOGNAME}_geobfn"
-exp_name: &_exp_name "compete_addScheduler"
+exp_name: &_exp_name "compete_addScheduler_addElemLoss"
 debug: !SUB ${debug}
 test: !SUB ${test}
 no_wandb: !SUB ${no_wandb}

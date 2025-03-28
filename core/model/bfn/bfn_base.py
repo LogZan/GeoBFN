@@ -169,6 +169,8 @@ class bfn4MolEGNN(bfnBase):
         no_diff_coord=False,
         charge_discretised_loss=False,
         charge_clamp=False,
+        element_distribution=None,
+        element_dist_weight=1.0,
     ):
         super(bfn4MolEGNN, self).__init__()
 
@@ -215,6 +217,78 @@ class bfn4MolEGNN(bfnBase):
             ShiftedSoftplus(),
             nn.Linear(self.hidden_dim, bins),
         )
+        
+        # Add target element distribution parameters
+        if element_distribution is not None:
+            self.register_element_distribution(element_distribution)
+        else:
+            self.target_element_dist = None
+        
+        self.element_dist_weight = element_dist_weight
+
+    def register_element_distribution(self, element_distribution):
+        """
+        Register the target element distribution for regularization
+        element_distribution: list of counts for each element type
+        """
+        if isinstance(element_distribution, list):
+            # Convert to tensor and normalize to get probability distribution
+            dist_tensor = torch.tensor(element_distribution, dtype=torch.float32, device=self.device)
+            self.target_element_dist = dist_tensor / dist_tensor.sum()
+            logging.info(f"Registered target element distribution: {self.target_element_dist}")
+        else:
+            logging.warning("Invalid element distribution format provided")
+            self.target_element_dist = None
+
+    def calculate_distribution_regularization(self, k_hat, segment_ids=None):
+        """
+        Calculate regularization loss to match target element distribution
+        k_hat: predicted atom features that can be converted to atom types
+        segment_ids: batch assignment for each atom
+        """
+        if self.target_element_dist is None:
+            return torch.tensor(0.0, device=self.device)
+        
+        # For discretized loss, k_hat is already a probability distribution
+        if self.charge_discretised_loss:
+            # Sum the probabilities for each atom type
+            pred_dist = k_hat.mean(dim=0)
+        else:
+            # For continuous prediction, need to convert to atom types first
+            # Use the same method as in charge_decode in the sampling script
+            k_c = self.K_c.unsqueeze(-1)  # shape: [num_bins, 1]
+            # Find closest bin center for each atom's charge prediction
+            atom_type_indices = (k_hat - k_c.T).abs().argmin(dim=1)
+            
+            # Count frequencies of each atom type
+            batch_size = segment_ids.max().item() + 1 if segment_ids is not None else 1
+            atom_counts = torch.zeros(self.bins.int().item(), device=self.device)
+            atom_counts.scatter_add_(0, atom_type_indices, torch.ones_like(atom_type_indices, dtype=torch.float32))
+            
+            # Normalize to get probability distribution
+            pred_dist = atom_counts / atom_counts.sum()
+        
+        # Calculate KL divergence between predicted and target distributions
+        # Make sure both distributions have the same length
+        target_dist = self.target_element_dist
+        if len(pred_dist) != len(target_dist):
+            logging.warning(f"Predicted dist length {len(pred_dist)} doesn't match target dist length {len(target_dist)}")
+            # Pad or truncate as needed
+            if len(pred_dist) < len(target_dist):
+                pred_dist = F.pad(pred_dist, (0, len(target_dist) - len(pred_dist)))
+            else:
+                pred_dist = pred_dist[:len(target_dist)]
+        
+        # Use KL divergence as regularization loss
+        # Add small epsilon to avoid log(0)
+        epsilon = 1e-9
+        kl_div = F.kl_div(
+            (pred_dist + epsilon).log(), 
+            target_dist + epsilon, 
+            reduction='batchmean'
+        )
+        
+        return kl_div
 
     def gaussian_basis(self, x):
         """x: [batch_size, ...]"""
@@ -393,10 +467,19 @@ class bfn4MolEGNN(bfnBase):
             charge_loss = self.ctime4continuous_loss(
                 t=t, sigma1=self.sigma1_charges, x_pred=k_hat, x=charges
             )
+        
+        # Add distribution regularization loss
+        # if self.target_element_dist is not None and t.mean() < 0.1:  # Apply more at the end of diffusion
+        if self.target_element_dist is not None:
+            dist_reg_loss = self.calculate_distribution_regularization(k_hat, segment_ids)
+            # Weight the regularization term
+            dist_reg_loss = self.element_dist_weight * dist_reg_loss
+        else:
+            dist_reg_loss = torch.tensor(0.0, device=self.device)
 
         return (
             posloss,
-            charge_loss,
+            charge_loss + dist_reg_loss,  # Add regularization to charge loss
             (mu_coord, mu_charge, coord_pred, k_hat, gamma_coord, gamma_charge),
         )
 
