@@ -1,5 +1,5 @@
 project_name: &_project_name !ENV "${LOGNAME}_geobfn"
-exp_name: &_exp_name "compete"
+exp_name: &_exp_name "compete_addScheduler"
 debug: !SUB ${debug}
 test: !SUB ${test}
 no_wandb: !SUB ${no_wandb}
@@ -71,10 +71,18 @@ optimization:
   epochs: !SUB ${epochs}
   difftime: !SUB ${difftime:-True}
   weight_decay: !SUB ${weight_decay:-1e-12}
+  beta1: !SUB ${beta1:-0.95}
+  beta2: !SUB ${beta2:-0.999}
   resume: !SUB ${resume:-False}
   recover_trigger_loss: !SUB ${recover_trigger_loss:-500}
   skip_count_limit: !SUB ${skip_count_limit:-3}
   maximum_allowed_norm: !SUB ${maximum_allowed_norm:-10000}
+  scheduler:
+    type: !SUB ${scheduler:-plateau}
+    factor: !SUB ${scheduler_factor:-0.6}
+    patience: !SUB ${scheduler_patience:-10}
+    min_lr: !SUB ${scheduler_min_lr:-1.e-6}
+    max_iters: !SUB ${scheduler_max_iters:-20000}
 
 evaluation:
   eval_data_num: !SUB ${eval_data_num:-1000}

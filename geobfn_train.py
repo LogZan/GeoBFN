@@ -208,14 +208,55 @@ class BFN4MolGenTrain(pl.LightningModule):
         self.train_losses = []
 
     def configure_optimizers(self):
-        # optim = torch.optim.SGD(self.parameters(), lr=self.cfg.optimization.lr)
+        # Create optimizer with betas if configured
         optim = torch.optim.AdamW(
             self.parameters(),
             lr=self.cfg.optimization.lr,
             amsgrad=True,
             weight_decay=float(self.cfg.optimization.weight_decay),
+            betas=(getattr(self.cfg.optimization, 'beta1', 0.9), 
+                   getattr(self.cfg.optimization, 'beta2', 0.999))
         )
-        return optim
+        
+        # If scheduler is not configured or set to 'none', return only optimizer
+        if not hasattr(self.cfg.optimization, 'scheduler') or self.cfg.optimization.scheduler.type == 'none':
+            return optim
+            
+        # Configure plateau scheduler
+        if self.cfg.optimization.scheduler.type == 'plateau':
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optim,
+                mode='min',
+                factor=self.cfg.optimization.scheduler.factor,
+                patience=self.cfg.optimization.scheduler.patience,
+                min_lr=self.cfg.optimization.scheduler.min_lr,
+            )
+            return {
+                "optimizer": optim,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "monitor": "epoch_loss",
+                    "interval": "epoch",
+                    "frequency": 1,
+                }
+            }
+        # Configure cosine annealing scheduler
+        elif self.cfg.optimization.scheduler.type == 'cosine':
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optim,
+                T_max=self.cfg.optimization.scheduler.max_iters,
+                eta_min=self.cfg.optimization.scheduler.min_lr,
+            )
+            return {
+                "optimizer": optim,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "epoch",
+                    "frequency": 1,
+                }
+            }
+        else:
+            return optim
 
 
 if __name__ == "__main__":
@@ -235,13 +276,19 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--sigma1_coord", type=float, default=0.001)
     parser.add_argument("--sigma1_charges", type=float, default=0.15)
-    parser.add_argument("--beta1", type=float, default=2.0)
+    parser.add_argument("--beta1", type=float, default=0.95)
+    parser.add_argument("--beta2", type=float, default=0.999)
     parser.add_argument("--sample_steps", type=int, default=1000)
     parser.add_argument("--eval_data_num", type=int, default=1000)
     parser.add_argument("--checkpoint_freq", type=int, default=20)
     parser.add_argument("--exp_version", type=str, default=None)
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--ckpt_pattern", type=str, default="last*.ckpt")
+    parser.add_argument("--scheduler", type=str, default='plateau', choices=['cosine', 'plateau', 'none'])
+    parser.add_argument("--scheduler_factor", type=float, default=0.6)
+    parser.add_argument("--scheduler_patience", type=int, default=10)
+    parser.add_argument("--scheduler_min_lr", type=float, default=1e-6)
+    parser.add_argument("--scheduler_max_iters", type=int, default=20000)
 
     _args = parser.parse_args()
     # _args, unknown = parser.parse_known_args()
