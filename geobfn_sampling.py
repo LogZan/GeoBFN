@@ -161,7 +161,7 @@ if __name__ == "__main__":
     # cfg.evaluation.eval_data_num = _args.num_samples # Set number of samples for evaluation context
     # cfg.exp_name = _args.exp_name
     cfg.debug = _args.debug
-    cfg.no_wandb = _args.no_wandb
+    # cfg.no_wandb = _args.no_wandb
 
     if cfg.debug:
         cfg.exp_name = "debug_sampling"
@@ -171,7 +171,7 @@ if __name__ == "__main__":
         cfg.no_wandb = True
 
     print(f"--- Sampling Configuration ---")
-    print(cfg)
+    # print(cfg)
     print(f"Number of samples to generate: {_args.num_samples}")
     print(f"Checkpoint path: {cfg.accounting.checkpoint_path}")
     print(f"-----------------------------")
@@ -292,9 +292,20 @@ if __name__ == "__main__":
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "output")
     os.makedirs(output_dir, exist_ok=True)
     
+    # Create logs directory
+    logs_dir = os.path.join(output_dir, "logs")
+    os.makedirs(logs_dir, exist_ok=True)
+    
     # Get timestamp for filename
-    timestamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M")
+    timestamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
     output_file = os.path.join(output_dir, f"output_{timestamp}.pkl")
+    
+    # Set up file logging with the same filename base
+    log_file = os.path.join(logs_dir, f"output_{timestamp}.log")
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    logging.getLogger().addHandler(file_handler)
+    logging.info(f"Log file created: {log_file}")
     
     # Process each molecule
     logging.info("Processing molecules for pickle file...")
@@ -370,3 +381,4 @@ if __name__ == "__main__":
     runtime_str += f"{int(seconds)}s"
     
     print(f"Sampling script finished. Total runtime: {runtime_str}")
+    logging.info(f"Total runtime: {runtime_str}")
