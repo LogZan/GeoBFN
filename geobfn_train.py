@@ -318,7 +318,8 @@ if __name__ == "__main__":
         save_dir=cfg.accounting.wandb_logdir,
         version=cfg.accounting.exp_version,
     )  # add wandb parameters
-    wandb_logger.log_hyperparams(cfg.todict())
+    if not cfg.no_wandb:
+        wandb_logger.log_hyperparams(cfg.todict())
     cfg.save2yaml(cfg.accounting.dump_config_path)
     if cfg.dataset.name == "qm9":
         train_loader = QM9Gen(
