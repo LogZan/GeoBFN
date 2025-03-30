@@ -303,7 +303,7 @@ if __name__ == "__main__":
         epoch = re.search(r'epoch=(\d+)', cfg.accounting.checkpoint_path).group(1)
     except AttributeError:
         epoch = "last"
-    output_file = os.path.join(output_dir, f"output_{timestamp}_epochs_{epoch}_steps_900.pkl")
+    output_file = os.path.join(output_dir, f"output_{timestamp}_epochs_{epoch}_ema.pkl")
     
     # Set up file logging with the same filename base
     log_file = os.path.join(logs_dir, f"output_{timestamp}.log")

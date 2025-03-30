@@ -449,6 +449,7 @@ class EMACallback(pl.Callback):
             f"They are: {self.original_state_dict.keys() - self.ema_state_dict.keys()}"
         )
         pl_module.load_state_dict(self.ema_state_dict, strict=False)
+        print("EMA weights loaded successfully")
 
         if pl_module.global_rank > 0:
             # Remove ema state dict from the memory. In rank 0, it could be in ram pinned memory.
@@ -470,6 +471,18 @@ class EMACallback(pl.Callback):
 
     @overrides
     def on_test_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
+        self.on_validation_end(trainer, pl_module)
+
+    @overrides
+    def on_predict_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
+        ckpt_path = trainer.callbacks[0].latest_ckpt
+        checkpoint = torch.load(ckpt_path)
+        self.ema_state_dict = checkpoint['ema_state_dict']
+        self._ema_state_dict_ready = checkpoint['_ema_state_dict_ready']
+        self.on_validation_start(trainer, pl_module)
+
+    @overrides
+    def on_predict_end(self, trainer: Trainer, pl_module: LightningModule) -> None:
         self.on_validation_end(trainer, pl_module)
 
     @overrides
