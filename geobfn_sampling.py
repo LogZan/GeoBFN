@@ -147,8 +147,8 @@ if __name__ == "__main__":
     )
     parser.add_argument("--exp_name", type=str, default="geobfn_sampling", help="Experiment name for logging.")
     parser.add_argument("--logging_level", type=str, default="info", choices=["debug", "info", "warning", "error", "fatal"])
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode (overrides some settings).")
-    parser.add_argument("--no_wandb", action="store_true", help="Disable WandB logging.")
+    parser.add_argument("--debug", action="store_true", default=False, help="Enable debug mode (overrides some settings).")
+    parser.add_argument("--no_wandb", action="store_true", default=True, help="Disable WandB logging.")
 
     _args = parser.parse_args()
 
@@ -298,13 +298,18 @@ if __name__ == "__main__":
     
     # Get timestamp for filename
     timestamp = datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")
-    output_file = os.path.join(output_dir, f"output_{timestamp}.pkl")
+    import re
+    try:
+        epoch = re.search(r'epoch=(\d+)', cfg.accounting.checkpoint_path).group(1)
+    except AttributeError:
+        epoch = "last"
+    output_file = os.path.join(output_dir, f"output_{timestamp}_epochs_{epoch}_steps_900.pkl")
     
     # Set up file logging with the same filename base
     log_file = os.path.join(logs_dir, f"output_{timestamp}.log")
-    file_handler = logging.FileHandler(log_file)
-    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    logging.getLogger().addHandler(file_handler)
+    # file_handler = logging.FileHandler(log_file)
+    # file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+    # logging.getLogger().addHandler(file_handler)
     logging.info(f"Log file created: {log_file}")
     
     # Process each molecule

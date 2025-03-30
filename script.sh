@@ -6,4 +6,4 @@ CUDA_VISIBLE_DEVICES=5 timeout 72h bash -c 'while true; do nohup python geobfn_t
 CUDA_VISIBLE_DEVICES=6 python geobfn_sampling.py --config_file logs/zengchuanlong_geobfn/compete/config.yaml
 
 # evaluate
-python evaluate.py --input output/output20250327_1534.pkl 
+python evaluate.py --input output/output_20250329_142807.pk
