@@ -475,10 +475,10 @@ class EMACallback(pl.Callback):
 
     @overrides
     def on_predict_start(self, trainer: Trainer, pl_module: LightningModule) -> None:
-        ckpt_path = trainer.callbacks[0].latest_ckpt
-        checkpoint = torch.load(ckpt_path)
-        self.ema_state_dict = checkpoint['ema_state_dict']
-        self._ema_state_dict_ready = checkpoint['_ema_state_dict_ready']
+        # ckpt_path = trainer.callbacks[0].latest_ckpt
+        # checkpoint = torch.load(ckpt_path)
+        # self.ema_state_dict = checkpoint['ema_state_dict']
+        # self._ema_state_dict_ready = checkpoint['_ema_state_dict_ready']
         self.on_validation_start(trainer, pl_module)
 
     @overrides
