@@ -51,6 +51,7 @@ class BFN4MolGenTrain(pl.LightningModule):
             charge_discretised_loss=self.cfg.dynamics.charge_discretised_loss,
             charge_clamp=self.cfg.dynamics.charge_clamp,
             t_min=self.cfg.dynamics.t_min,
+            net_config=self.cfg.dynamics.todict(),
         )
         # [ time, h_t, pos_t, edge_index]
         self.train_losses = []

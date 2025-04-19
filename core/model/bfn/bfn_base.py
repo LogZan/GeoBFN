@@ -6,8 +6,12 @@ from torchdiffeq import odeint
 from torch_scatter import scatter_mean
 import torch.distributions as dist
 
+from core.config.config import Struct
 from core.module.egnn_new import EGNN
 from core.module.common import compose_context, ShiftedSoftplus
+from core.model.encoder import load_encoder
+# from core.torchmdnet.models.torchmd_et import TorchMD_ET
+# from core.model.dynamics.uni_transformer import UniTransformerO2TwoUpdateGeneral
 import numpy as np
 from absl import logging
 from tqdm import tqdm
@@ -169,6 +173,7 @@ class bfn4MolEGNN(bfnBase):
         no_diff_coord=False,
         charge_discretised_loss=False,
         charge_clamp=False,
+        net_config=None
     ):
         super(bfn4MolEGNN, self).__init__()
 
@@ -187,6 +192,9 @@ class bfn4MolEGNN(bfnBase):
             # normalize=True,
             tanh=tanh,
         )
+        self.torchmd_et = load_encoder(net_config, "encoder")
+        # net_config = Struct(**net_config)
+        # self.unio2net = UniTransformerO2TwoUpdateGeneral(**net_config.todict())
         self.in_node_nf = in_node_nf
 
         self.device = device
@@ -257,7 +265,9 @@ class bfn4MolEGNN(bfnBase):
             h = h_in
 
         # print("mu_pos_t_in", mu_pos_t_in.shape, "h", h.shape, "h_in", h_in.shape)
-        h_final, coord_final = self.egnn(h, mu_pos_t, edge_index, edge_attr)
+        # h_final, coord_final = self.egnn(h, mu_pos_t, edge_index, edge_attr)
+        h_final, coord_final = self.torchmd_et(h, mu_pos_t, segment_ids)
+
         # here we want the last two dimensions of h_final is mu_eps and ln_sigma_eps
         # h_final = [atom_types, charges_mu,charge_sigma, t]
         # if not torch.all(torch.isfinite(h_final)) or not torch.all(
@@ -270,6 +280,17 @@ class bfn4MolEGNN(bfnBase):
         #     print("h_final", h_final.min(), h_final.max())
         #     print("coord_final", coord_final.min(), coord_final.max())
         #     raise ValueError("h_final is not finite or coord_final is not finite")
+
+        # try unio2net in vain
+        # mask_ligand = torch.cat([
+        #     torch.ones([segment_ids.size(0)], device=segment_ids.device).bool(),], dim=0)
+        # outputs = self.unio2net(
+        #     h, mu_pos_t, mask_ligand, segment_ids
+        # )
+        # coord_final, h_final = (
+        #     outputs["x"],
+        #     outputs["h"],
+        # )  # shape of the pos and shape of h
 
         if self.no_diff_coord:
             eps_coord_pred = coord_final
