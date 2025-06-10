@@ -99,25 +99,7 @@ class CompeteData(InMemoryDataset):
 
     def process(self):
         target_keys = [
-            "mu",
-            "alpha",
-            "homo",
-            "lumo",
-            "gap",
-            "r2",
-            "zpve",
-            "U0",
-            "U",
-            "H",
-            "G",
-            "Cv",
-            "U0_thermo",
-            "U_thermo",
-            "H_thermo",
-            "G_thermo",
-            "A",
-            "B",
-            "C",
+            "energy",
         ]
 
         def _make_data_instance(
@@ -125,7 +107,7 @@ class CompeteData(InMemoryDataset):
             _num_atoms: torch.Tensor,
             _charges: torch.Tensor,
             _positions: torch.Tensor,
-            # _targets: torch.Tensor,
+            _targets: torch.Tensor,
         ):
             """
             Args:
@@ -133,7 +115,7 @@ class CompeteData(InMemoryDataset):
                 _num_atoms: scalar
                 _charges : [K]
                 _positions: [K, 3]
-                _targets: [19]
+                _targets: [1]
             """
             _charges, _positions = _charges[:_num_atoms], _positions[:_num_atoms, :]
             _type_onehot = (
@@ -144,19 +126,19 @@ class CompeteData(InMemoryDataset):
                 x=_type_onehot,
                 charges=_charges,
                 pos=_positions,
-                # y=_targets,
+                y=_targets,
                 # idx=_index.reshape(-1),
             )
 
         def _load_datalist_from_npz(path: str) -> List[Data]:
             _data_dict = np.load(path)
-            # targets = torch.concat(
-            #     [
-            #         torch.tensor(_data_dict[k], dtype=torch.float32).reshape(-1, 1)
-            #         for k in target_keys
-            #     ],
-            #     dim=-1,
-            # )
+            targets = torch.concat(
+                [
+                    torch.tensor(_data_dict[k], dtype=torch.float32).reshape(-1, 1)
+                    for k in target_keys
+                ],
+                dim=-1,
+            )
             # index = torch.tensor(_data_dict["index"], dtype=torch.int64)
             num_atoms = torch.tensor(_data_dict["natoms"], dtype=torch.int32)
             charges = torch.tensor(_data_dict["charges"], dtype=torch.int32)  # [N, K]
@@ -176,7 +158,7 @@ class CompeteData(InMemoryDataset):
                 datalist.append(
                     _make_data_instance(
                     num_atoms[i], charges[i], positions[i]
-                    # , targets[i]
+                    , targets[i]
                     )
                 )
             return datalist

@@ -34,6 +34,15 @@ from core.data.prefetch import PrefetchLoader
 import core.utils.ctxmgr as ctxmgr
 from tqdm import tqdm
 
+# for dxtb
+import dxtb
+from dxtb import timer
+from tad_mctc.units import AA2AU
+
+timer.disable()
+dd = {"dtype": torch.double, "device": torch.device("cpu")}
+
+
 class BFN4MolGenTrain(pl.LightningModule):
     def __init__(self, config: Config):
         super().__init__()
@@ -64,12 +73,13 @@ class BFN4MolGenTrain(pl.LightningModule):
         pass
 
     def training_step(self, batch, batch_idx):
-        h, charges, x, edge_index, segment_ids = (
+        h, charges, x, edge_index, segment_ids, energy = (
             batch.x,  # [n_nodes, n_features]
             batch.charges,  # [n_nodes, 1]
             batch.pos,  # [n_nodes, 3]
             batch.edge_index,  # [2, edge_num]
             batch.batch,  # [n_nodes]
+            batch.y,  # [n_nodes, 1] or [n_nodes, n_targets]
         )
         num_molecules = batch.ptr.shape[0] - 1
         # print("train_step",batch.charges)
@@ -84,13 +94,18 @@ class BFN4MolGenTrain(pl.LightningModule):
             t = torch.rand([1, 1], dtype=x.dtype, device=x.device) * torch.ones(
                 size=[segment_ids.shape[0], 1], dtype=x.dtype, device=x.device
             )  # [n_nodes, 1]
-        posloss, charge_loss, _ = self.dynamics.loss_one_step(
-            t, x=h, pos=x, edge_index=edge_index, segment_ids=segment_ids
+        posloss, charge_loss, assets = self.dynamics.loss_one_step(
+            t, x=h, pos=x, edge_index=edge_index, segment_ids=segment_ids, condition=energy
         )
         # valid_loss = losses < 1000
         # if not valid_loss.all():
         #     logging.warning(f"valid loss {torch.sum(valid_loss)} < {losses.shape[0]}")
         #     losses = losses * valid_loss.to(losses.dtype)
+
+        # calculate energy using dxtb
+        # (mu_coord, mu_charge, coord_pred, k_hat, gamma_coord, gamma_charge) = assets
+        # pred_atom_type = self.charge_decode(k_hat)
+        # pred_pos = mu_coord
 
         loss = torch.mean(posloss + charge_loss)
 
@@ -289,7 +304,7 @@ if __name__ == "__main__":
             batch_size=cfg.evaluation.batch_size,
             num_workers=cfg.dataset.num_workers,
         )
-    elif cfg.dataset.name == "compete":
+    elif cfg.dataset.name == "compete" or cfg.dataset.name == "compete_condition":
         train_loader = CompeteDataGen(
             datadir=cfg.dataset.datadir,
             batch_size=cfg.optimization.batch_size,

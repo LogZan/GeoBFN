@@ -176,7 +176,7 @@ class bfn4MolEGNN(bfnBase):
         # print("bfn",seperate_charge_net)
 
         self.egnn = EGNN(
-            in_node_nf=in_node_nf + int(condition_time),  # +1 for time
+            in_node_nf=in_node_nf + int(condition_time) + 1,  # +1 for time # +1 for the condition
             hidden_nf=hidden_nf,
             out_node_nf=out_node_nf,  # need to predict the mean and variance of the charges for discretised data
             in_edge_nf=0,
@@ -234,6 +234,7 @@ class bfn4MolEGNN(bfnBase):
         edge_index,
         edge_attr=None,
         segment_ids=None,
+        condition=None,
         inference=False,
     ):
         """
@@ -255,6 +256,11 @@ class bfn4MolEGNN(bfnBase):
             h = torch.cat([h_in, h_time], dim=1)
         else:
             h = h_in
+
+        if condition is not None:
+            expanded_condition = condition[segment_ids]
+            expanded_condition = expanded_condition.unsqueeze(1)
+            h = torch.cat([h, expanded_condition], dim=1)
 
         # print("mu_pos_t_in", mu_pos_t_in.shape, "h", h.shape, "h_in", h_in.shape)
         h_final, coord_final = self.egnn(h, mu_pos_t, edge_index, edge_attr)
@@ -353,6 +359,7 @@ class bfn4MolEGNN(bfnBase):
         edge_index,
         edge_attr=None,
         segment_ids=None,
+        condition=None,
     ):
         charges = x[:, -1:]
         mask = t > self.t_min
@@ -378,6 +385,7 @@ class bfn4MolEGNN(bfnBase):
             edge_index=edge_index,
             edge_attr=edge_attr,
             segment_ids=segment_ids,
+            condition=condition,
         )
         posloss = self.ctime4continuous_loss(
             t=t, sigma1=self.sigma1_coord, x_pred=coord_pred, x=pos
