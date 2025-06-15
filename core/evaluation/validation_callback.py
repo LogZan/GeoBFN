@@ -161,12 +161,13 @@ class MolVisualizationCallback(Callback):
 
         self.outputs.extend(outputs)
         if len(self.chain_outputs) == 0:
-            _, _, _, edge_index, segment_ids = (
+            _, _, _, edge_index, segment_ids, energy = (
                 batch.zx,  # [n_nodes, n_features]
                 batch.zpos,  # [n_nodes, 3]
                 batch.zcharges,
                 batch.edge_index,  # [2, edge_num]
                 batch.batch,  # [n_nodes]
+                batch.y
             )
             # z_h = (
             #     torch.concat([z_h, z_charges], dim=-1)
@@ -181,6 +182,7 @@ class MolVisualizationCallback(Callback):
                 edge_index=edge_index,
                 sample_steps=pl_module.dynamics.sample_steps,
                 segment_ids=segment_ids,
+                condition=energy,
             )
             for i in tqdm.tqdm(range(len(theta_chain))):
                 x, h = theta_chain[i]

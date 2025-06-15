@@ -409,7 +409,7 @@ class bfn4MolEGNN(bfnBase):
         )
 
     def forward(
-        self, n_nodes, edge_index, sample_steps=None, edge_attr=None, segment_ids=None
+        self, n_nodes, edge_index, sample_steps=None, edge_attr=None, segment_ids=None, condition=None,
     ):
         """
         The function implements a sampling procedure for BFN
@@ -446,6 +446,7 @@ class bfn4MolEGNN(bfnBase):
                 edge_index=edge_index,
                 edge_attr=edge_attr,
                 segment_ids=segment_ids,
+                condition=condition,
                 inference=True,
             )
 
@@ -507,6 +508,7 @@ class bfn4MolEGNN(bfnBase):
             edge_index=edge_index,
             edge_attr=edge_attr,
             segment_ids=segment_ids,
+            condition=condition,
         )
         if self.charge_discretised_loss:
             k_c = self.K_c.unsqueeze(-1).unsqueeze(0)

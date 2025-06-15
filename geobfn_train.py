@@ -14,10 +14,10 @@ torch.set_float32_matmul_precision('high')
 import os
 import datetime, pytz
 from core.losses import loss
-from pytorch_lightning.loggers import WandbLogger
+from swanlab.integration.pytorch_lightning import SwanLabLogger as WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.utils.data import DataLoader
-import wandb
+import swanlab as wandb
 from core.callbacks.basic import (
     Gradient_clip,
     DebugCallback,
@@ -181,9 +181,10 @@ class BFN4MolGenTrain(pl.LightningModule):
         return one_hot
 
     def validation_step(self, batch, batch_idx):
-        edge_index, segment_ids = (
+        edge_index, segment_ids, energy = (
             batch.edge_index,  # [2, edge_num]
             batch.batch,  # [n_nodes]
+            batch.y,  # [n_nodes, 1] or [n_nodes, n_targets]
         )
 
         n_nodes = segment_ids.shape[0]
@@ -191,6 +192,7 @@ class BFN4MolGenTrain(pl.LightningModule):
             n_nodes=n_nodes,
             edge_index=edge_index,
             segment_ids=segment_ids,
+            condition=energy,
         )
 
         x, h = theta_chain[-1]
@@ -304,7 +306,7 @@ if __name__ == "__main__":
             batch_size=cfg.evaluation.batch_size,
             num_workers=cfg.dataset.num_workers,
         )
-    elif cfg.dataset.name == "compete" or cfg.dataset.name == "compete_condition":
+    elif cfg.dataset.name == "compete":
         train_loader = CompeteDataGen(
             datadir=cfg.dataset.datadir,
             batch_size=cfg.optimization.batch_size,
@@ -319,6 +321,23 @@ if __name__ == "__main__":
             batch_size=cfg.evaluation.batch_size,
             num_workers=cfg.dataset.num_workers,
             max_n_nodes=60
+        )
+    elif cfg.dataset.name == "compete_condition":
+        train_loader = CompeteDataGen(
+            datadir=cfg.dataset.datadir,
+            batch_size=cfg.optimization.batch_size,
+            n_node_histogram=cfg.dataset.n_node_histogram,
+            debug=cfg.debug,
+            num_workers=cfg.dataset.num_workers,
+            split="train" if not cfg.test else "test",
+        )
+        eval_loader = CompeteDataGen(
+            datadir=cfg.dataset.datadir,
+            batch_size=cfg.optimization.batch_size,
+            n_node_histogram=cfg.dataset.n_node_histogram,
+            debug=cfg.debug,
+            num_workers=cfg.dataset.num_workers,
+            split="val",
         )
     else:
         raise NotImplementedError

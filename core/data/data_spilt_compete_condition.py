@@ -5,22 +5,31 @@ import argparse
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 
-charge_map = {
-    'H': 1,
-    'C': 6,
-    'N': 7,
-    'O': 8,
-    'F': 9,
-    'P': 15,
-    'S': 16,
-    'Cl': 17,
-    'Br': 35,
-    # Add other elements if needed
-}
-DEFAULT_CHARGE = 0 # Charge for elements not in the map
-ELEMENT_PADDING_VALUE = None # Value to use for padding element lists
-CHARGE_PADDING_VALUE = 0    # Value to use for padding charge lists
+ELEMENT_PADDING_VALUE = 0     # Value to use for padding element lists (atomic number 0)
+CHARGE_PADDING_VALUE = 0      # Value to use for padding charge lists
 COORD_PADDING_VALUE = 0.0     # Value to use for padding coordinate arrays
+
+def normalize_energy(energy_list):
+    """
+    Normalize energy values to [0, 1] range using min-max normalization.
+    
+    Args:
+        energy_list: List of energy values
+    
+    Returns:
+        tuple: (normalized_energy_list, min_energy, max_energy)
+    """
+    energy_array = np.array(energy_list)
+    min_energy = np.min(energy_array)
+    max_energy = np.max(energy_array)
+    
+    if max_energy == min_energy:
+        # All energy values are the same, set to 0.5
+        normalized_energy = np.full_like(energy_array, 0.5)
+    else:
+        normalized_energy = (energy_array - min_energy) / (max_energy - min_energy)
+    
+    return normalized_energy.tolist(), min_energy, max_energy
 
 def process_molecular_data(data_list):
     """
@@ -29,7 +38,7 @@ def process_molecular_data(data_list):
 
     Args:
         data_list: A list of dictionaries, where each dictionary has keys
-                'natoms' (int), 'elements' (list of str), and
+                'natoms' (int), 'elements' (list of int - atomic numbers), and
                 'coordinates' (list of list of float).
 
     Returns:
@@ -39,7 +48,7 @@ def process_molecular_data(data_list):
                     Shape: (num_molecules, max_atoms)
         - 'coordinates': NumPy array of coordinates, padded with COORD_PADDING_VALUE.
                         Shape: (num_molecules, max_atoms, 3)
-        - 'charge': List of lists of charges, padded with CHARGE_PADDING_VALUE.
+        - 'charge': List of lists of charges (same as atomic numbers), padded with CHARGE_PADDING_VALUE.
                     Shape: (num_molecules, max_atoms)
     """
     num_molecules = len(data_list)
@@ -70,12 +79,11 @@ def process_molecular_data(data_list):
         current_coords = item_dict.get('coordinates', [])
 
         if current_natoms > 0: # Ensure there are atoms to process
-            # Pad elements
+            # Pad elements (atomic numbers)
             padded_elements[i][:current_natoms] = current_elements
 
-            # Calculate and pad charges
-            charges = [charge_map.get(el, DEFAULT_CHARGE) for el in current_elements]
-            padded_charges[i][:current_natoms] = charges
+            # Use atomic numbers directly as charges
+            padded_charges[i][:current_natoms] = current_elements
 
             # Pad coordinates
             coords_array = np.array(current_coords, dtype=float)
@@ -100,6 +108,14 @@ def split_and_save_data(processed_data, args):
     """
     Split the processed data into train, validation and test sets and save them.
     """
+    # Normalize energy values
+    print("Normalizing energy values...")
+    normalized_energy, min_energy, max_energy = normalize_energy(processed_data['energy'])
+    print(f"Energy normalization: min={min_energy:.6f}, max={max_energy:.6f}")
+    
+    # Update processed_data with normalized energy
+    processed_data['energy'] = normalized_energy
+    
     # Calculate indices for splitting
     indices = np.arange(len(processed_data['natoms']))
     
@@ -144,10 +160,20 @@ def split_and_save_data(processed_data, args):
         save_path = os.path.join(args.data_dir, f'{split_name}.npz')
         np.savez_compressed(save_path, **split_data)
         print(f"Saved to {save_path}")
+    
+    # Save normalization parameters
+    norm_params = {
+        'min_energy': min_energy,
+        'max_energy': max_energy
+    }
+    norm_path = os.path.join(args.data_dir, 'energy_normalization.pkl')
+    with open(norm_path, 'wb') as f:
+        pickle.dump(norm_params, f)
+    print(f"Saved energy normalization parameters to {norm_path}")
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process and split molecular data')
-    parser.add_argument('--data_dir', type=str, default='dataset/compete_condition',
+    parser.add_argument('--data_dir', type=str, default='dataset/competition_round2',
                        help='Directory containing the data files')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for splitting')
@@ -161,7 +187,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Load data
-    data_path = os.path.join(args.data_dir, 'data_all_with_energy.pkl')
+    data_path = os.path.join(args.data_dir, 'competition_round2.pkl')
     print(f"Loading data from {data_path}")
     with open(data_path, 'rb') as f:
         data = pickle.load(f)

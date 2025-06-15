@@ -449,7 +449,7 @@ class EMACallback(pl.Callback):
             f"They are: {self.original_state_dict.keys() - self.ema_state_dict.keys()}"
         )
         pl_module.load_state_dict(self.ema_state_dict, strict=False)
-        print("EMA weights loaded successfully")
+        # print("EMA weights loaded successfully")
 
         if pl_module.global_rank > 0:
             # Remove ema state dict from the memory. In rank 0, it could be in ram pinned memory.

@@ -1,5 +1,5 @@
 project_name: &_project_name !ENV "${LOGNAME}_geobfn"
-exp_name: &_exp_name "compete_condition"
+exp_name: &_exp_name "compete_round2"
 debug: !SUB ${debug}
 test: !SUB ${test}
 no_wandb: !SUB ${no_wandb}
@@ -8,15 +8,14 @@ logging_level: !SUB ${logging_level:-warning}
 #data
 dataset: 
   name: "compete_condition"
-  datadir: !ENV "./dataset/compete_condition"
+  datadir: !ENV "./dataset/competition_round2"
   num_workers: 63
   n_atom_types: &_n_atom_types 9
   atom_decoder: ['H', 'C', 'N', 'O', 'F', 'P', 'S', 'Cl', 'Br']
   atomic_nb: [1, 6, 7, 8, 9, 15, 16, 17, 35]
-  n_node_histogram: [0, 0, 0, 1, 2, 17, 35, 60, 115, 207, 314, 489, 772, 1000, 1331, 1582,
-                     1837, 2061, 2281, 2385, 2435, 2502, 2524, 2461, 2404, 2296, 2203, 2024,
-                     1904, 1668, 1479, 1265, 1078, 889, 763, 635, 556, 461, 350, 278, 228,
-                     174, 159, 130, 91, 84, 84, 58, 51, 29, 25, 15, 20, 6, 5, 4, 9, 6, 5, 4, 3]
+  n_node_histogram: [0, 0, 0, 0, 0, 0, 3, 13, 37, 79, 153, 297, 497, 908, 1098,
+                     1485, 2078, 2532, 2691, 3140, 3301, 3731, 3476, 3914, 4428,
+                      4530, 4469, 5054, 4929, 4409]
   remove_h: False
   normalizer_dict: 
     pos: 2.0
@@ -95,9 +94,9 @@ accounting:
 
 #visualization
 visual:
-  save_mols: True
+  save_mols: False
   visual_nums: 10
-  visual_chain: True
+  visual_chain: False
 
 
 

@@ -1,4 +1,8 @@
 # train
+CUDA_VISIBLE_DEVICES=1 python geobfn_train.py --config_file configs/bfn4molgen_compete_condition.yaml --epochs 3000
+CUDA_VISIBLE_DEVICES=1 nohup python geobfn_train.py --config_file configs/bfn4molgen_compete_condition.yaml --epochs 3000 &
+
+
 CUDA_VISIBLE_DEVICES=5 nohup python geobfn_train.py --config_file configs/bfn4molgen_compete.yaml --epochs 3000 --resume &
 CUDA_VISIBLE_DEVICES=5 timeout 72h bash -c 'while true; do nohup python geobfn_train.py --config_file configs/bfn4molgen_compete.yaml --epochs 3000 --resume; sleep 1; done' &
 
