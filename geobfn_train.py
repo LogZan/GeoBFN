@@ -51,6 +51,7 @@ class BFN4MolGenTrain(pl.LightningModule):
             self.cfg.dynamics.in_node_nf,
             self.cfg.dynamics.hidden_nf,
             n_layers=self.cfg.dynamics.n_layers,
+            # condition_time=False,
             sigma1_coord=self.cfg.dynamics.sigma1_coord,
             sigma1_charges=self.cfg.dynamics.sigma1_charges,
             bins=self.cfg.dynamics.bins,

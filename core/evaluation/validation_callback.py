@@ -14,7 +14,7 @@ from core.evaluation.metrics import BasicMolGenMetric
 from core.evaluation.visualization import visualize, visualize_chain
 import json
 import matplotlib
-import wandb
+import swanlab as wandb
 import copy
 
 # this file contains the model which we used to visualize the
@@ -253,7 +253,7 @@ class MolVisualizationCallback(Callback):
                     # else:
                     #     table[1].append(wandb.Image(im))
                 # pl_module.logger.log_table(key="epoch {}".format(epoch),data=table,columns= ['1','2','3','4','5'])
-                pl_module.logger.log_image(key="epoch {}".format(epoch), images=table)
+                # pl_module.logger.log_image(key="epoch {}".format(epoch), images=table)
                 # wandb.log()
                 # update to wandb
         if pl_module.cfg.visual.visual_chain:

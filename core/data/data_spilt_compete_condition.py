@@ -4,6 +4,7 @@ import os
 import argparse
 from tqdm import tqdm
 from sklearn.model_selection import train_test_split
+import csv
 
 ELEMENT_PADDING_VALUE = 0     # Value to use for padding element lists (atomic number 0)
 CHARGE_PADDING_VALUE = 0      # Value to use for padding charge lists
@@ -11,7 +12,7 @@ COORD_PADDING_VALUE = 0.0     # Value to use for padding coordinate arrays
 
 def normalize_energy(energy_list):
     """
-    Normalize energy values to [0, 1] range using min-max normalization.
+    Normalize energy values to [-1, 1] range using min-max normalization.
     
     Args:
         energy_list: List of energy values
@@ -24,10 +25,11 @@ def normalize_energy(energy_list):
     max_energy = np.max(energy_array)
     
     if max_energy == min_energy:
-        # All energy values are the same, set to 0.5
-        normalized_energy = np.full_like(energy_array, 0.5)
+        # All energy values are the same, set to 0
+        normalized_energy = np.zeros_like(energy_array)
     else:
-        normalized_energy = (energy_array - min_energy) / (max_energy - min_energy)
+        # Normalize to [-1, 1] range: 2 * (x - min) / (max - min) - 1
+        normalized_energy = 2 * (energy_array - min_energy) / (max_energy - min_energy) - 1
     
     return normalized_energy.tolist(), min_energy, max_energy
 
@@ -108,14 +110,6 @@ def split_and_save_data(processed_data, args):
     """
     Split the processed data into train, validation and test sets and save them.
     """
-    # Normalize energy values
-    print("Normalizing energy values...")
-    normalized_energy, min_energy, max_energy = normalize_energy(processed_data['energy'])
-    print(f"Energy normalization: min={min_energy:.6f}, max={max_energy:.6f}")
-    
-    # Update processed_data with normalized energy
-    processed_data['energy'] = normalized_energy
-    
     # Calculate indices for splitting
     indices = np.arange(len(processed_data['natoms']))
     
@@ -133,6 +127,25 @@ def split_and_save_data(processed_data, args):
         train_size=val_size,
         random_state=args.seed
     )
+    
+    # Save unnormalized test energy values as CSV
+    print("Saving unnormalized test energy values...")
+    test_energy_unnormalized = [processed_data['energy'][i] for i in test_idx]
+    csv_path = os.path.join(args.data_dir, 'test_energy_unnormalized.csv')
+    with open(csv_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['idx', 'Value'])  # Header
+        for idx, energy in enumerate(test_energy_unnormalized):
+            writer.writerow([idx, energy])
+    print(f"Saved unnormalized test energy values to {csv_path}")
+    
+    # Normalize energy values
+    print("Normalizing energy values...")
+    normalized_energy, min_energy, max_energy = normalize_energy(processed_data['energy'])
+    print(f"Energy normalization: min={min_energy:.6f}, max={max_energy:.6f}")
+    
+    # Update processed_data with normalized energy
+    processed_data['energy'] = normalized_energy
     
     # Create directory if it doesn't exist
     os.makedirs(args.data_dir, exist_ok=True)

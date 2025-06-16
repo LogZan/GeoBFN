@@ -5,13 +5,14 @@ import os
 import pytz
 import pickle
 import numpy as np
+import pandas as pd
+import logging as python_logging
 from datetime import datetime, timedelta
 from typing import Any, Optional, List
 
 import pytorch_lightning as pl
 import torch
 from absl import logging
-from swanlab.integration.pytorch_lightning import SwanLabLogger as WandbLogger
 from pytorch_lightning.utilities.types import STEP_OUTPUT
 from torch_geometric.data import Data, DataLoader  # Use torch_geometric DataLoader
 
@@ -19,7 +20,7 @@ from torch_geometric.data import Data, DataLoader  # Use torch_geometric DataLoa
 from core.config.config import Config
 from core.model.bfn.bfn_base import bfn4MolEGNN
 from core.data.qm9_gen import QM9Gen
-from core.data.data_gen_compete import CompeteDataGen
+from core.data.data_gen_compete_condition import CompeteDataGen
 from core.callbacks.basic import (
     NormalizerCallback,
     RecoverCallback,
@@ -42,6 +43,7 @@ class BFN4MolSampler(pl.LightningModule):
             in_node_nf=self.cfg.dynamics.in_node_nf,
             hidden_nf=self.cfg.dynamics.hidden_nf,
             n_layers=self.cfg.dynamics.n_layers,
+            # condition_time=False,
             sigma1_coord=self.cfg.dynamics.sigma1_coord,
             sigma1_charges=self.cfg.dynamics.sigma1_charges,
             bins=self.cfg.dynamics.bins,
@@ -62,9 +64,10 @@ class BFN4MolSampler(pl.LightningModule):
         Performs unconditional sampling based on the input batch structure.
         The input batch should define n_nodes, edge_index, and segment_ids.
         """
-        edge_index, segment_ids = (
+        edge_index, segment_ids, condition_value = (
             batch.edge_index,  # [2, edge_num]
-            batch.batch,  # [n_nodes]
+            batch.batch,  # [n_nodes],
+            batch.condition_value,  # [n_nodes, 1] or None
         )
         n_nodes = segment_ids.shape[0]
 
@@ -75,6 +78,7 @@ class BFN4MolSampler(pl.LightningModule):
             n_nodes=n_nodes,
             edge_index=edge_index,
             segment_ids=segment_ids,
+            condition=condition_value,  # [n_nodes, 1] or None
         )
 
         # Get the final state (t=0)
@@ -137,7 +141,10 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--config_file", type=str, required=True, help="Path to the config YAML file used for training."
+        "input_condition", type=str, default="dataset/competition_round2/input_condition.csv", help="input_condition.csv"
+    )
+    parser.add_argument(
+        "--config_file", type=str, default="logs/zengchuanlong_geobfn/compete_round2/config.yaml", help="Path to the config YAML file used for training."
     )
     parser.add_argument(
         "--num_samples", type=int, default=10000, help="Number of molecules to generate."
@@ -148,57 +155,60 @@ if __name__ == "__main__":
     parser.add_argument("--exp_name", type=str, default="geobfn_sampling", help="Experiment name for logging.")
     parser.add_argument("--logging_level", type=str, default="info", choices=["debug", "info", "warning", "error", "fatal"])
     parser.add_argument("--debug", action="store_true", default=False, help="Enable debug mode (overrides some settings).")
-    parser.add_argument("--no_wandb", action="store_true", default=True, help="Disable WandB logging.")
 
     _args = parser.parse_args()
 
     # Load config and potentially override with command-line args
     cfg = Config(config_file=_args.config_file) # Load base config first
-    # Update config with command-line args (careful not to overwrite nested dicts unintentionally)
-    # Simple override for top-level args:
-    # cfg.optimization.batch_size = _args.batch_size # Use generation batch size
-    # cfg.evaluation.batch_size = _args.batch_size # Align evaluation batch size
-    # cfg.evaluation.eval_data_num = _args.num_samples # Set number of samples for evaluation context
-    # cfg.exp_name = _args.exp_name
     cfg.debug = _args.debug
-    # cfg.no_wandb = _args.no_wandb
 
     if cfg.debug:
         cfg.exp_name = "debug_sampling"
         _args.num_samples = 50 # Reduce samples in debug mode
         cfg.evaluation.eval_data_num = 50
         cfg.dynamics.sample_steps = 50 # Faster sampling for debug
-        cfg.no_wandb = True
 
     print(f"--- Sampling Configuration ---")
-    # print(cfg)
     print(f"Number of samples to generate: {_args.num_samples}")
     print(f"Checkpoint path: {cfg.accounting.checkpoint_path}")
     print(f"-----------------------------")
-
 
     logging_level = {
         "info": logging.INFO, "debug": logging.DEBUG, "warning": logging.WARNING,
         "error": logging.ERROR, "fatal": logging.FATAL,
     }
-    logging.set_verbosity(logging_level[cfg.logging_level])
+    logging.set_verbosity(logging_level[_args.logging_level])
 
-    # --- Logger ---
-    os.makedirs(cfg.accounting.wandb_logdir, exist_ok=True)
+    # --- Setup Local Logging ---
+    os.makedirs("logs", exist_ok=True)
     run_name = cfg.exp_name + f'_sampling_{datetime.now(pytz.timezone("Asia/Shanghai")).strftime("%Y%m%d_%H%M%S")}'
-    wandb_logger = WandbLogger(
-        name=run_name,
-        project=cfg.project_name,
-        offline=cfg.debug or cfg.no_wandb,
-        save_dir=cfg.accounting.wandb_logdir,
+    log_file_path = f"logs/{run_name}.log"
+    
+    # Setup Python logging
+    python_logging.basicConfig(
+        level=python_logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            python_logging.FileHandler(log_file_path),
+            python_logging.StreamHandler()
+        ]
     )
-    wandb_logger.log_hyperparams(cfg.todict()) # Log the effective config
+    python_logging.info(f"Local logging initialized. Log file: {log_file_path}")
+
+    # Read and normalize condition values
+    logging.info(f"Reading condition values from {_args.input_condition}")
+    condition_df = pd.read_csv(_args.input_condition)
+    condition_values = condition_df['Value'].values
+    
+    # Normalize the condition values to [0, 1]
+    min_val = condition_values.min()
+    max_val = condition_values.max()
+    normalized_values = (condition_values - min_val) / (max_val - min_val)
+    logging.info(f"Normalized {len(normalized_values)} condition values. Original range: [{min_val:.4f}, {max_val:.4f}]")
 
     # --- Data Loader for Sampling Input ---
-    # We need a loader that provides the *structure* (n_nodes, edge_index, batch)
-    # Use the same method as validation/evaluation dataloading initiation
     logging.info(f"Preparing sampling input loader for {_args.num_samples} molecules...")
-    DataGenClass = QM9Gen if cfg.dataset.name == "qm9" else CompeteDataGen if cfg.dataset.name == "compete" else None
+    DataGenClass = QM9Gen if cfg.dataset.name == "qm9" else CompeteDataGen if cfg.dataset.name == "compete_condition" else None
     if DataGenClass is None:
         raise NotImplementedError(f"Dataset type '{cfg.dataset.name}' not recognized for sampling.")
 
@@ -207,16 +217,14 @@ if __name__ == "__main__":
         n_node_histogram=cfg.dataset.n_node_histogram,
         batch_size=cfg.evaluation.batch_size, # Use eval batch size from config
         num_workers=cfg.dataset.num_workers,
-        max_n_nodes=60
-        # shuffle=False # No need to shuffle for generation
+        max_n_nodes=60,
+        condition_values=normalized_values,  # Pass normalized condition values
     )
     logging.info(f"Sampling loader created with {len(sampling_loader)} batches.")
 
 
     # --- Reference Dataset (for Evaluation Callback) ---
-    # MolGenValidationCallback needs statistics from the reference (training) dataset
     logging.info("Loading reference dataset for evaluation metrics...")
-    # Only instantiate the dataset part, not the full loader if not needed elsewhere
     ref_DataGen = DataGenClass(
             datadir=cfg.dataset.datadir,
             batch_size=1, # Minimal batch size, just need the .ds object
@@ -242,14 +250,11 @@ if __name__ == "__main__":
                 skip_count_limit=cfg.optimization.skip_count_limit,
             ),
         NormalizerCallback(normalizer_dict=cfg.dataset.normalizer_dict),
-        # Evaluation callback - runs on predict output
         MolGenValidationCallback(
             dataset=ref_dataset, # Provide reference dataset
             atom_type_one_hot=True, # As used in predict_step output
             single_bond=cfg.evaluation.single_bond,
-            # Add other MolGenValidationCallback args as needed from your config/training setup
         ),
-        # EMA callback - if model was trained with EMA and you want to sample from EMA weights
         EMACallback(decay=0.9999, ema_device="cuda"),
     ]
 
@@ -257,9 +262,8 @@ if __name__ == "__main__":
     trainer = pl.Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         devices=1,
-        logger=wandb_logger,
+        logger=False,  # Disable PyTorch Lightning logger
         callbacks=callbacks,
-        # No training/validation loop settings needed:
         max_epochs=1, # Needs at least 1 epoch to run predict
         check_val_every_n_epoch=9999, # Disable validation loop
         num_sanity_val_steps=0,      # Disable sanity check
@@ -270,18 +274,10 @@ if __name__ == "__main__":
 
     # --- Run Sampling ---
     logging.info("Starting molecule generation...")
-    # The trainer.predict call will:
-    # 1. Load the model checkpoint via RecoverCallback.
-    # 2. Apply EMA weights if EMACallback is present and configured correctly.
-    # 3. Iterate through `sampling_loader`.
-    # 4. Call `model.predict_step` for each batch.
-    # 5. Collect the results (lists of Data objects).
-    # 6. Trigger `on_predict_epoch_end` in callbacks (MolGenValidationCallback will run evaluation).
     results = trainer.predict(model, dataloaders=sampling_loader)
 
     logging.info("Molecule generation finished.")
 
-    # Results is a list of lists (one inner list per batch from predict_step). Flatten it.
     generated_molecules: List[Data] = [mol for batch_result in results for mol in batch_result]
 
     logging.info(f"Successfully generated {len(generated_molecules)} molecules.")
@@ -305,18 +301,12 @@ if __name__ == "__main__":
         epoch = "last"
     output_file = os.path.join(output_dir, f"output_{timestamp}_epochs_{epoch}_ema.pkl")
     
-    # Set up file logging with the same filename base
-    log_file = os.path.join(logs_dir, f"output_{timestamp}.log")
-    # file_handler = logging.FileHandler(log_file)
-    # file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-    # logging.getLogger().addHandler(file_handler)
-    logging.info(f"Log file created: {log_file}")
+    python_logging.info(f"Output will be saved to: {output_file}")
     
     # Process each molecule
     logging.info("Processing molecules for pickle file...")
     processed_molecules = []
     
-    # Get atomic symbols from configuration
     atomic_symbols = cfg.dataset.atom_decoder
     remove_h = cfg.dataset.remove_h  # Check if H is removed from consideration
     
@@ -324,25 +314,18 @@ if __name__ == "__main__":
         if mol_idx % 100 == 0:
             logging.info(f"Processing molecule {mol_idx}/{len(generated_molecules)}")
         
-        # Get number of atoms
         natoms = mol.num_nodes
         
-        # Convert one-hot encoded atom types to element symbols
         x_onehot = mol.x.cpu().numpy()  # [num_nodes, atom_type_num]
         elements = []
         
         for atom_idx in range(natoms):
-            # Get the index of the 1 in the one-hot encoding
             atom_type_idx = np.argmax(x_onehot[atom_idx])
-            # Map to the corresponding element from atomic_symbols
-            # If remove_h is True, need to offset the index
             element_symbol = atomic_symbols[atom_type_idx + remove_h]
             elements.append(element_symbol)
         
-        # Get coordinates
         coordinates = mol.pos.cpu().numpy().tolist()  # Convert to Python list
         
-        # Create molecule dictionary
         molecule_dict = {
             'natoms': natoms,
             'elements': elements,
@@ -351,30 +334,16 @@ if __name__ == "__main__":
         
         processed_molecules.append(molecule_dict)
     
-    # Save to pickle file
     with open(output_file, 'wb') as f:
         pickle.dump(processed_molecules, f)
     
     logging.info(f"Saved {len(processed_molecules)} molecules to {output_file}")
 
-    # --- Finalize WandB ---
-    wandb_logger.finalize("success")
-    logging.info("WandB logging finalized.")
-    if not cfg.no_wandb:
-         # Ensure the experiment finishes correctly, especially in scripts
-        try:
-            import wandb
-            wandb.finish()
-        except ImportError:
-            pass # wandb not installed
-        except Exception as e:
-            logging.error(f"Error finishing wandb run: {e}")
+    python_logging.info("Sampling completed successfully.")
 
-    # Calculate total execution time
     script_end_time = datetime.now()
     total_runtime = script_end_time - script_start_time
     
-    # Format the runtime in a human-friendly way
     hours, remainder = divmod(total_runtime.total_seconds(), 3600)
     minutes, seconds = divmod(remainder, 60)
     
@@ -387,3 +356,4 @@ if __name__ == "__main__":
     
     print(f"Sampling script finished. Total runtime: {runtime_str}")
     logging.info(f"Total runtime: {runtime_str}")
+    python_logging.info(f"Total runtime: {runtime_str}")
