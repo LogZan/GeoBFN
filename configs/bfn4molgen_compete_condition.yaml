@@ -1,5 +1,5 @@
 project_name: &_project_name !ENV "${LOGNAME}_geobfn"
-exp_name: &_exp_name "compete_round2_energy_normalized"
+exp_name: &_exp_name "compete_round2_energy_normalized_val"
 debug: !SUB ${debug}
 test: !SUB ${test}
 no_wandb: !SUB ${no_wandb}

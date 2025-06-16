@@ -144,7 +144,7 @@ if __name__ == "__main__":
         "input_condition", type=str, default="dataset/competition_round2/input_condition.csv", help="input_condition.csv"
     )
     parser.add_argument(
-        "--config_file", type=str, default="logs/zengchuanlong_geobfn/compete_round2/config.yaml", help="Path to the config YAML file used for training."
+        "--config_file", type=str, default="logs/zengchuanlong_geobfn/compete_round2_energy_normalized/config.yaml", help="Path to the config YAML file used for training."
     )
     parser.add_argument(
         "--num_samples", type=int, default=10000, help="Number of molecules to generate."

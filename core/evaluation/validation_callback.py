@@ -108,9 +108,9 @@ class MolGenValidationCallback(Callback):
         self, trainer: Trainer, pl_module: LightningModule
     ) -> None:
         super().on_validation_epoch_end(trainer, pl_module)
-        out_metrics = self.metric.evaluate(self.outputs)
-        pl_module.log_dict(out_metrics)
-        print(json.dumps(out_metrics, indent=4))
+        # out_metrics = self.metric.evaluate(self.outputs)
+        # pl_module.log_dict(out_metrics)
+        # print(json.dumps(out_metrics, indent=4))
 
 
 class MolVisualizationCallback(Callback):
