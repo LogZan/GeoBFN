@@ -15,22 +15,24 @@ class GCL(nn.Module):
         nodes_att_dim=0,
         act_fn=nn.SiLU(),
         attention=False,
+        global_context_dim=0,
     ):
         super(GCL, self).__init__()
         input_edge = input_nf * 2
         self.normalization_factor = normalization_factor
         self.aggregation_method = aggregation_method
         self.attention = attention
+        self.global_context_dim = global_context_dim
 
         self.edge_mlp = nn.Sequential(
-            nn.Linear(input_edge + edges_in_d, hidden_nf),
+            nn.Linear(input_edge + edges_in_d + global_context_dim, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, hidden_nf),
             act_fn,
         )
 
         self.node_mlp = nn.Sequential(
-            nn.Linear(hidden_nf + input_nf + nodes_att_dim, hidden_nf),
+            nn.Linear(hidden_nf + input_nf + nodes_att_dim + global_context_dim, hidden_nf),
             act_fn,
             nn.Linear(hidden_nf, output_nf),
         )
@@ -38,11 +40,19 @@ class GCL(nn.Module):
         if self.attention:
             self.att_mlp = nn.Sequential(nn.Linear(hidden_nf, 1), nn.Sigmoid())
 
-    def edge_model(self, source, target, edge_attr, edge_mask):
+    def edge_model(self, source, target, edge_attr, edge_mask, global_context=None):
         if edge_attr is None:  # Unused.
             out = torch.cat([source, target], dim=1)
         else:
             out = torch.cat([source, target, edge_attr], dim=1)
+        
+        # Add global context to edge features
+        if global_context is not None:
+            # Expand global_context to match edge dimensions
+            edge_global_context = global_context[edge_mask] if edge_mask is not None else global_context
+            # Repeat for each edge - need to map from nodes to edges
+            out = torch.cat([out, edge_global_context], dim=1)
+            
         mij = self.edge_mlp(out)
 
         if self.attention:
@@ -55,7 +65,7 @@ class GCL(nn.Module):
             out = out * edge_mask
         return out, mij
 
-    def node_model(self, x, edge_index, edge_attr, node_attr):
+    def node_model(self, x, edge_index, edge_attr, node_attr, global_context=None):
         row, col = edge_index
         agg = unsorted_segment_sum(
             edge_attr,
@@ -68,6 +78,13 @@ class GCL(nn.Module):
             agg = torch.cat([x, agg, node_attr], dim=1)
         else:
             agg = torch.cat([x, agg], dim=1)
+            
+        # Add global context to node features
+        if global_context is not None:
+            # Map global context to nodes using segment_ids
+            node_global_context = global_context  # Assume already properly shaped
+            agg = torch.cat([agg, node_global_context], dim=1)
+            
         out = x + self.node_mlp(agg)
         return out, agg
 
@@ -79,10 +96,25 @@ class GCL(nn.Module):
         node_attr=None,
         node_mask=None,
         edge_mask=None,
+        segment_ids=None,
+        global_context=None,
     ):
         row, col = edge_index
-        edge_feat, mij = self.edge_model(h[row], h[col], edge_attr, edge_mask)
-        h, agg = self.node_model(h, edge_index, edge_feat, node_attr)
+        
+        # Handle global context for edges
+        edge_global_context = None
+        if global_context is not None and segment_ids is not None:
+            # Map global context to edges via segment_ids
+            edge_global_context = global_context[segment_ids[row]]
+            
+        # Handle global context for nodes  
+        node_global_context = None
+        if global_context is not None and segment_ids is not None:
+            # Map global context to nodes via segment_ids
+            node_global_context = global_context[segment_ids]
+        
+        edge_feat, mij = self.edge_model(h[row], h[col], edge_attr, edge_mask, edge_global_context)
+        h, agg = self.node_model(h, edge_index, edge_feat, node_attr, node_global_context)
         if node_mask is not None:
             h = h * node_mask
         return h, mij
@@ -98,11 +130,12 @@ class EquivariantUpdate(nn.Module):
         act_fn=nn.SiLU(),
         tanh=False,
         coords_range=10.0,
+        global_context_dim=0,
     ):
         super(EquivariantUpdate, self).__init__()
         self.tanh = tanh
         self.coords_range = coords_range
-        input_edge = hidden_nf * 2 + edges_in_d
+        input_edge = hidden_nf * 2 + edges_in_d + global_context_dim
         layer = nn.Linear(hidden_nf, 1, bias=False)
         torch.nn.init.xavier_uniform_(layer.weight, gain=0.001)
         self.coord_mlp = nn.Sequential(
@@ -115,9 +148,14 @@ class EquivariantUpdate(nn.Module):
         self.normalization_factor = normalization_factor
         self.aggregation_method = aggregation_method
 
-    def coord_model(self, h, coord, edge_index, coord_diff, edge_attr, edge_mask):
+    def coord_model(self, h, coord, edge_index, coord_diff, edge_attr, edge_mask, global_context=None):
         row, col = edge_index
         input_tensor = torch.cat([h[row], h[col], edge_attr], dim=1)
+        
+        # Add global context to coordinate update
+        if global_context is not None:
+            input_tensor = torch.cat([input_tensor, global_context], dim=1)
+            
         if self.tanh:
             trans = (
                 coord_diff
@@ -147,8 +185,16 @@ class EquivariantUpdate(nn.Module):
         edge_attr=None,
         node_mask=None,
         edge_mask=None,
+        segment_ids=None,
+        global_context=None,
     ):
-        coord = self.coord_model(h, coord, edge_index, coord_diff, edge_attr, edge_mask)
+        # Handle global context for edges
+        edge_global_context = None
+        if global_context is not None and segment_ids is not None:
+            row, col = edge_index
+            edge_global_context = global_context[segment_ids[row]]
+            
+        coord = self.coord_model(h, coord, edge_index, coord_diff, edge_attr, edge_mask, edge_global_context)
         if node_mask is not None:
             coord = coord * node_mask
         return coord
@@ -170,6 +216,7 @@ class EquivariantBlock(nn.Module):
         sin_embedding=None,
         normalization_factor=1,
         aggregation_method="sum",
+        global_context_dim=0,
     ):
         super(EquivariantBlock, self).__init__()
         self.hidden_nf = hidden_nf
@@ -181,6 +228,7 @@ class EquivariantBlock(nn.Module):
         self.sin_embedding = sin_embedding
         self.normalization_factor = normalization_factor
         self.aggregation_method = aggregation_method
+        self.global_context_dim = global_context_dim
 
         for i in range(0, n_layers):
             self.add_module(
@@ -194,6 +242,7 @@ class EquivariantBlock(nn.Module):
                     attention=attention,
                     normalization_factor=self.normalization_factor,
                     aggregation_method=self.aggregation_method,
+                    global_context_dim=global_context_dim,
                 ),
             )
         self.add_module(
@@ -206,12 +255,12 @@ class EquivariantBlock(nn.Module):
                 coords_range=self.coords_range_layer,
                 normalization_factor=self.normalization_factor,
                 aggregation_method=self.aggregation_method,
+                global_context_dim=global_context_dim,
             ),
         )
         self.to(self.device)
 
-    def forward(self, h, x, edge_index, node_mask=None, edge_mask=None, edge_attr=None):
-        # Edit Emiel: Remove velocity as input
+    def forward(self, h, x, edge_index, node_mask=None, edge_mask=None, edge_attr=None, segment_ids=None, global_context=None):
         distances, coord_diff = coord2diff(x, edge_index, self.norm_constant)
         if self.sin_embedding is not None:
             distances = self.sin_embedding(distances)
@@ -223,12 +272,13 @@ class EquivariantBlock(nn.Module):
                 edge_attr=edge_attr,
                 node_mask=node_mask,
                 edge_mask=edge_mask,
+                segment_ids=segment_ids,
+                global_context=global_context,
             )
         x = self._modules["gcl_equiv"](
-            h, x, edge_index, coord_diff, edge_attr, node_mask, edge_mask
+            h, x, edge_index, coord_diff, edge_attr, node_mask, edge_mask, segment_ids, global_context
         )
 
-        # Important, the bias of the last linear might be non-zero
         if node_mask is not None:
             h = h * node_mask
         return h, x
@@ -258,6 +308,7 @@ class EGNN(nn.Module):
         sin_embedding=False,
         normalization_factor=1,
         aggregation_method="sum",
+        global_context_dim=0,
     ):
         super(EGNN, self).__init__()
         if out_node_nf is None:
@@ -269,6 +320,7 @@ class EGNN(nn.Module):
         self.norm_diff = norm_diff
         self.normalization_factor = normalization_factor
         self.aggregation_method = aggregation_method
+        self.global_context_dim = global_context_dim
 
         if sin_embedding:
             self.sin_embedding = SinusoidsEmbeddingNew()
@@ -278,8 +330,6 @@ class EGNN(nn.Module):
             edge_feat_nf = 2
 
         self.embedding = nn.Linear(in_node_nf, self.hidden_nf)
-        # self.embedding_out = nn.Linear(self.hidden_nf, out_node_nf)
-
         self.embedding_out_charge = nn.Linear(self.hidden_nf, out_node_nf)
 
         for i in range(0, n_layers):
@@ -299,12 +349,12 @@ class EGNN(nn.Module):
                     sin_embedding=self.sin_embedding,
                     normalization_factor=self.normalization_factor,
                     aggregation_method=self.aggregation_method,
+                    global_context_dim=global_context_dim,
                 ),
             )
         self.to(self.device)
 
-    def forward(self, h, x, edge_index, node_mask=None, edge_mask=None):
-        # Edit Emiel: Remove velocity as input
+    def forward(self, h, x, edge_index, node_mask=None, edge_mask=None, segment_ids=None, global_context=None):
         distances, _ = coord2diff(x, edge_index)
         if self.sin_embedding is not None:
             distances = self.sin_embedding(distances)
@@ -317,9 +367,9 @@ class EGNN(nn.Module):
                 node_mask=node_mask,
                 edge_mask=edge_mask,
                 edge_attr=distances,
+                segment_ids=segment_ids,
+                global_context=global_context,
             )
-
-        # Important, the bias of the last linear might be non-zero
 
         h = self.embedding_out_charge(h)
 
@@ -368,7 +418,6 @@ class GNN(nn.Module):
         self.to(self.device)
 
     def forward(self, h, edges, edge_attr=None, node_mask=None, edge_mask=None):
-        # Edit Emiel: Remove velocity as input
         h = self.embedding(h)
         for i in range(0, self.n_layers):
             h, _ = self._modules["gcl_%d" % i](
@@ -376,7 +425,6 @@ class GNN(nn.Module):
             )
         h = self.embedding_out(h)
 
-        # Important, the bias of the last linear might be non-zero
         if node_mask is not None:
             h = h * node_mask
         return h

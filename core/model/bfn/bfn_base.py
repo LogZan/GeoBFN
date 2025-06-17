@@ -173,19 +173,26 @@ class bfn4MolEGNN(bfnBase):
         super(bfn4MolEGNN, self).__init__()
 
         out_node_nf = 2  # for the coordinates
-        # print("bfn",seperate_charge_net)
+
+        # Add energy context encoder
+        self.energy_context_dim = 32  # dimension of encoded energy context
+        self.energy_encoder = nn.Sequential(
+            nn.Linear(1, hidden_nf),
+            ShiftedSoftplus(),
+            nn.Linear(hidden_nf, self.energy_context_dim),
+        )
 
         self.egnn = EGNN(
-            in_node_nf=in_node_nf + int(condition_time) + 1,  # +1 for time # +1 for the condition
+            in_node_nf=in_node_nf + int(condition_time),  # removed +1 for condition
             hidden_nf=hidden_nf,
-            out_node_nf=out_node_nf,  # need to predict the mean and variance of the charges for discretised data
+            out_node_nf=out_node_nf,
             in_edge_nf=0,
             device=device,
             act_fn=act_fn,
             n_layers=n_layers,
             attention=attention,
-            # normalize=True,
             tanh=tanh,
+            global_context_dim=self.energy_context_dim,  # pass context dimension
         )
         self.in_node_nf = in_node_nf
 
@@ -207,7 +214,6 @@ class bfn4MolEGNN(bfnBase):
         self.centers = torch.linspace(
             start, end, self.in_node_nf, device="cuda:0"
         )  # [feature_num]
-        # print(in_node_nf + int(condition_time),in_node_nf + int(condition_time)+1)
         self.K_c = torch.tensor(k_c).to(self.device)
         self.hidden_dim = hidden_nf
         self.v_inference = nn.Sequential(
@@ -257,32 +263,21 @@ class bfn4MolEGNN(bfnBase):
         else:
             h = h_in
 
+        # Encode energy condition as global context
+        global_context = None
         if condition is not None:
-            expanded_condition = condition[segment_ids]
-            expanded_condition = expanded_condition.unsqueeze(1)
-            h = torch.cat([h, expanded_condition], dim=1)
+            # Normalize condition and encode to context vector
+            condition_normalized = condition.unsqueeze(-1)  # [batch_size, 1]
+            global_context = self.energy_encoder(condition_normalized)  # [batch_size, energy_context_dim]
 
-        # print("mu_pos_t_in", mu_pos_t_in.shape, "h", h.shape, "h_in", h_in.shape)
-        h_final, coord_final = self.egnn(h, mu_pos_t, edge_index, edge_attr)
-        # here we want the last two dimensions of h_final is mu_eps and ln_sigma_eps
-        # h_final = [atom_types, charges_mu,charge_sigma, t]
-        # if not torch.all(torch.isfinite(h_final)) or not torch.all(
-        #     coord_final.isfinite()
-        # ):
-        #     print("h_time", h_time.min(), h_time.max())
-        #     print("h_in", h_in.min(), h_in.max())
-        #     print("mu_charge_t", mu_charge_t.min(), mu_charge_t.max())
-        #     print("mu_pos_t", mu_pos_t.min(), mu_pos_t.max())
-        #     print("h_final", h_final.min(), h_final.max())
-        #     print("coord_final", coord_final.min(), coord_final.max())
-        #     raise ValueError("h_final is not finite or coord_final is not finite")
-
+        h_final, coord_final = self.egnn(h, mu_pos_t, edge_index, edge_attr, 
+                                        segment_ids=segment_ids, global_context=global_context)
+        
         if self.no_diff_coord:
             eps_coord_pred = coord_final
         else:
             eps_coord_pred = coord_final - mu_pos_t
 
-        # DEBUG coord clamp
         eps_coord_pred = self.zero_center_of_mass(eps_coord_pred, segment_ids)
 
         mu_charge_eps = h_final[:, -2:-1]  # [n_nodes,1]
@@ -291,21 +286,11 @@ class bfn4MolEGNN(bfnBase):
         eps_coord_pred = torch.clamp(eps_coord_pred, min=-10, max=10)
         mu_charge_eps = torch.clamp(mu_charge_eps, min=-10, max=10)
         sigma_charge_eps = torch.clamp(sigma_charge_eps, min=-10, max=10)
-        # if not torch.all(mu_charge_eps.isfinite()) and not torch.all(sigma_charge_eps.isfinite()):
-        #     print("mu_charge_eps", mu_charge_eps.min(), mu_charge_eps.max())
-        #     print("sigma_charge_eps", sigma_charge_eps.min(), sigma_charge_eps.max())
-        #     print("pre clamp mu_charge_eps", h_final[:, -2:-1].min(), h_final[:, -2:-1].max())
-        #     print("pre clamp sigma_charge_eps", h_final[:, -1:].min(), h_final[:, -1:].max())
-        #     raise ValueError("mu_charge_eps or sigma_charge_eps is not finite")
 
         coord_pred = (
             mu_pos_t / gamma_coord
             - torch.sqrt((1 - gamma_coord) / gamma_coord) * eps_coord_pred
         )
-        # DEBUG coord clamp
-        # coord_pred = self.zero_center_of_mass(
-        #     torch.clamp(coord_pred, min=-15.0, max=15.0), segment_ids
-        # )
 
         if self.charge_discretised_loss:
             sigma_charge_eps = torch.exp(sigma_charge_eps)
@@ -328,7 +313,6 @@ class bfn4MolEGNN(bfnBase):
             ) - self.discretised_cdf(mu_charge_x, sigma_charge_x, k_l)
             k_hat = p_o
 
-            # for end_back_pmf
             final_ligand_v = self.v_inference(eps_coord_pred)
             if self.bins == 2:
                 p0_1 = torch.sigmoid(final_ligand_v)
@@ -338,10 +322,6 @@ class bfn4MolEGNN(bfnBase):
                 p0_h = torch.nn.functional.softmax(final_ligand_v, dim=-1)
 
         else:
-            """
-            charge is taken as the continous variable.
-            the sigma is just not trained and fixed. And the previous mu is considered as the eps
-            """
             k_hat = (
                 mu_charge_t / gamma_charge
                 - torch.sqrt((1 - gamma_charge) / gamma_charge) * mu_charge_eps
@@ -459,9 +439,6 @@ class bfn4MolEGNN(bfnBase):
             y_coord = self.zero_center_of_mass(
                 torch.clamp(y_coord, min=-10, max=10), segment_ids
             )
-            # mu_pos_t = (ro_coord * mu_pos_t + alpha_coord * y_coord) / (
-            #     ro_coord + alpha_coord
-            # )
             mu_pos_t = self.continuous_var_bayesian_update(t, sigma1=self.sigma1_coord, x=coord_pred)[0]    # end back sampling
             ro_coord = ro_coord + alpha_coord
 
@@ -487,7 +464,6 @@ class bfn4MolEGNN(bfnBase):
                 alpha_charge = torch.pow(self.sigma1_charges, -2 * i / sample_steps) * (
                     1 - torch.pow(self.sigma1_charges, 2 / sample_steps)
                 )
-                # print("k_hat",k_hat,k_hat.shape,k_hat.min(),k_hat.max())
 
                 y_charge = e_k_c + torch.randn_like(e_k_c) * torch.sqrt(
                     1 / alpha_charge
@@ -495,7 +471,6 @@ class bfn4MolEGNN(bfnBase):
                 mu_charge_t = (ro_charge * mu_charge_t + alpha_charge * y_charge) / (
                     ro_charge + alpha_charge
                 )
-                # mu_charge_t = self.discrete_var_bayesian_update(t, beta1=self.beta1, x=p0_h_pred, K=self.bins)    # end back sampling
                 ro_charge = ro_charge + alpha_charge
         mu_charge_t = torch.clamp(mu_charge_t, min=-10, max=10)
         mu_pos_t = torch.clamp(mu_pos_t, min=-10, max=10)
