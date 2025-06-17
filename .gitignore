@@ -11,3 +11,4 @@ nohup.out
 compete.log
 output
 predict/
+train_energy_val.log
