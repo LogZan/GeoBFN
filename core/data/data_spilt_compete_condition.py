@@ -139,6 +139,9 @@ def split_and_save_data(processed_data, args):
             writer.writerow([idx, energy])
     print(f"Saved unnormalized test energy values to {csv_path}")
     
+    # Keep original energy values before normalization
+    original_energy = processed_data['energy'].copy()
+    
     # Normalize energy values
     print("Normalizing energy values...")
     normalized_energy, min_energy, max_energy = normalize_energy(processed_data['energy'])
@@ -151,20 +154,21 @@ def split_and_save_data(processed_data, args):
     os.makedirs(args.data_dir, exist_ok=True)
     
     # Function to split data by indices
-    def split_data(data, idx):
+    def split_data(data, original_energy_data, idx):
         return {
             'natoms': [data['natoms'][i] for i in idx],
             # 'elements': [data['elements'][i] for i in idx],
             'coordinates': data['coordinates'][idx],
             'charges': [data['charge'][i] for i in idx],
-            'energy': [data['energy'][i] for i in idx]
+            'energy': [data['energy'][i] for i in idx],
+            'energy_original': [original_energy_data[i] for i in idx]
         }
     
     # Split and save data
     splits = {
-        'train': split_data(processed_data, train_idx),
-        'valid': split_data(processed_data, val_idx),
-        'test': split_data(processed_data, test_idx)
+        'train': split_data(processed_data, original_energy, train_idx),
+        'valid': split_data(processed_data, original_energy, val_idx),
+        'test': split_data(processed_data, original_energy, test_idx)
     }
     
     print("Saving splits with sizes:")
@@ -186,7 +190,7 @@ def split_and_save_data(processed_data, args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process and split molecular data')
-    parser.add_argument('--data_dir', type=str, default='dataset/competition_round2_1k',
+    parser.add_argument('--data_dir', type=str, default='dataset/competition_round2',
                        help='Directory containing the data files')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for splitting')
@@ -200,7 +204,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Load data
-    data_path = os.path.join(args.data_dir, 'competition_round2_1k.pkl')
+    data_path = os.path.join(args.data_dir, 'competition_round2.pkl')
     print(f"Loading data from {data_path}")
     with open(data_path, 'rb') as f:
         data = pickle.load(f)

@@ -145,8 +145,37 @@ def mol2smiles(mol):
             return None
         return Chem.MolToSmiles(mol)
 
-
 def build_molecule(
+    positions, atom_type, atom_decoder, type_is_one_hot=False, single_bond=False
+):
+    if type_is_one_hot:
+        assert len(atom_type.shape) == 2
+        atom_type = torch.argmax(atom_type, dim=1)
+    else:
+        assert len(atom_type.shape) == 1
+    assert len(positions.shape) == 2
+
+    X, A, E = build_xae_molecule(positions, atom_type, atom_decoder, single_bond)
+    mol = Chem.RWMol()
+    for atom in X:
+        a = Chem.Atom(atom_decoder[atom.item()])
+        mol.AddAtom(a)
+
+    all_bonds = torch.nonzero(A)
+    for bond in all_bonds:
+        mol.AddBond(
+            bond[0].item(), bond[1].item(), bond_dict[E[bond[0], bond[1]].item()]
+        )
+
+    # 添加构象信息
+    conf = Chem.Conformer(mol.GetNumAtoms())
+    for i, pos in enumerate(positions):
+        conf.SetAtomPosition(i, (float(pos[0]), float(pos[1]), float(pos[2])))
+    mol.AddConformer(conf)
+    
+    return mol
+
+def build_molecule_origin(
     positions, atom_type, atom_decoder, type_is_one_hot=False, single_bond=False
 ):
     if type_is_one_hot:

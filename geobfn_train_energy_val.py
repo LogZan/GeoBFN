@@ -28,140 +28,8 @@ from core.evaluation.validation_callback import (
 )
 from absl import logging
 
-# Imports for energy prediction
-from rdkit import Chem
-from tqdm import tqdm
-from predict.qm9.property_prediction import prop_utils
-from predict.qm9.property_prediction.models_property import EGNN as PropEGNN
-from core.evaluation.utils import build_molecule
-
 # Set precision
 torch.set_float32_matmul_precision("high")
-
-# =============================================================================
-# Helper Functions for Energy Prediction (from predict_qm9_property.py)
-# =============================================================================
-
-# --通用配置--
-MAX_ATOMS = 29
-SPECIES = [1, 6, 7, 8, 9, 15, 16, 17, 35]
-SPECIES_TO_IDX = {z: i for i, z in enumerate(SPECIES)}
-IN_NODE_NF = len(SPECIES)
-
-def _featurize_mol(mol: Chem.Mol, max_atoms: int = MAX_ATOMS) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    conf = mol.GetConformer()
-    n_atoms = mol.GetNumAtoms()
-    if n_atoms > max_atoms:
-        raise ValueError(f"原子数 {n_atoms} > 允许上限 {max_atoms}")
-
-    pos = np.zeros((max_atoms, 3), dtype=np.float32)
-    coord = np.array([conf.GetAtomPosition(i) for i in range(n_atoms)], dtype=np.float32)
-    coord -= coord.mean(axis=0, keepdims=True)
-    pos[:n_atoms] = coord
-
-    one_hot = np.zeros((max_atoms, IN_NODE_NF), dtype=np.float32)
-    for i, atom in enumerate(mol.GetAtoms()):
-        z = atom.GetAtomicNum()
-        if z not in SPECIES_TO_IDX:
-            raise KeyError(f"原子类型 {z} 未知")
-        one_hot[i, SPECIES_TO_IDX[z]] = 1.0
-
-    atom_mask = np.zeros(max_atoms, dtype=np.float32)
-    atom_mask[:n_atoms] = 1.0
-    return pos, one_hot, atom_mask
-
-def _mols_to_batch(mol_list: List[Chem.Mol], device: torch.device) -> dict:
-    B = len(mol_list)
-    pos_arr = np.zeros((B, MAX_ATOMS, 3), dtype=np.float32)
-    one_hot_a = np.zeros((B, MAX_ATOMS, IN_NODE_NF), dtype=np.float32)
-    atom_mk = np.zeros((B, MAX_ATOMS), dtype=np.float32)
-
-    valid_mol_indices = []
-    for idx, mol in enumerate(mol_list):
-        try:
-            pos, one_hot, mask = _featurize_mol(mol)
-            pos_arr[idx] = pos
-            one_hot_a[idx] = one_hot
-            atom_mk[idx] = mask
-            valid_mol_indices.append(idx)
-        except (KeyError, ValueError) as e:
-            # logging.warning(f"Skipping molecule {idx} due to error: {e}")
-            pass
-    
-    if not valid_mol_indices:
-        return None, None
-        
-    # Filter arrays to only include valid molecules
-    pos_arr = pos_arr[valid_mol_indices]
-    one_hot_a = one_hot_a[valid_mol_indices]
-    atom_mk = atom_mk[valid_mol_indices]
-    B = len(valid_mol_indices) # Update batch size
-
-    positions = torch.from_numpy(pos_arr)
-    one_hot = torch.from_numpy(one_hot_a)
-    atom_mask = torch.from_numpy(atom_mk).unsqueeze(-1)
-    
-    edge_mask = (atom_mask.unsqueeze(2) * atom_mask.unsqueeze(1))
-    diag = ~torch.eye(MAX_ATOMS, dtype=torch.bool).unsqueeze(0)
-    edge_mask = (edge_mask * diag.unsqueeze(-1)).view(B * MAX_ATOMS * MAX_ATOMS, 1)
-    
-    edges = prop_utils.get_adj_matrix(MAX_ATOMS, B, device)
-
-    return {
-        "positions": positions.view(B * MAX_ATOMS, 3),
-        "one_hot": one_hot.view(B * MAX_ATOMS, IN_NODE_NF),
-        "atom_mask": atom_mask.view(B * MAX_ATOMS, 1),
-        "edge_mask": edge_mask,
-        "edges": edges,
-    }, valid_mol_indices
-
-def load_trained_model(ckpt_path: str, args_pickle_path: str, mean: float, mad: float, device: torch.device) -> torch.nn.Module:
-    with open(args_pickle_path, 'rb') as f:
-        args = pickle.load(f)
-    args.device = device
-
-    model = PropEGNN(in_node_nf=IN_NODE_NF, in_edge_nf=0,
-                     hidden_nf=args.nf, n_layers=args.n_layers,
-                     device=device, coords_weight=1.0,
-                     attention=args.attention, node_attr=args.node_attr)
-
-    state = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(state, strict=True)
-    model.to(device).eval()
-
-    model.register_buffer('prop_mean', torch.tensor(mean, dtype=torch.float32, device=device))
-    model.register_buffer('prop_mad', torch.tensor(mad, dtype=torch.float32, device=device))
-    return model
-
-@torch.no_grad()
-def predict_mol_list(mol_list: List[Chem.Mol], model: torch.nn.Module, batch_size: int, device: torch.device) -> np.ndarray:
-    n_total = len(mol_list)
-    results = np.full(n_total, np.nan, dtype=np.float32)
-    
-    for start in range(0, n_total, batch_size):
-        end = min(start + batch_size, n_total)
-        chunk = mol_list[start:end]
-        
-        batch, valid_indices = _mols_to_batch(chunk, device)
-        if batch is None:
-            continue
-
-        for k in ("positions", "one_hot", "atom_mask", "edge_mask"):
-            batch[k] = batch[k].to(device)
-
-        pred_norm = model(h0=batch["one_hot"], x=batch["positions"], edges=batch["edges"],
-                          edge_attr=None, node_mask=batch["atom_mask"],
-                          edge_mask=batch["edge_mask"], n_nodes=MAX_ATOMS)
-        
-        pred_real = model.prop_mad * pred_norm + model.prop_mean
-        pred_np = pred_real.squeeze(-1).cpu().numpy()
-
-        # Place results back into the correct positions
-        original_indices = [start + i for i in valid_indices]
-        for i, res in zip(original_indices, pred_np):
-            results[i] = res
-            
-    return results
 
 # =============================================================================
 # Main Lightning Module
@@ -189,20 +57,6 @@ class BFN4MolGenTrain(pl.LightningModule):
         self.atomic_nb = self.cfg.dataset.atomic_nb
         self.remove_h = self.cfg.dataset.remove_h
         self.atom_type_num = len(self.atomic_nb) - self.remove_h
-
-        # --- Load the energy prediction model ---
-        logging.info("Loading energy prediction model...")
-        ckpt = 'predict/qm9/property_prediction/outputs-0611/exp_class_alpha/best_checkpoint.npy'
-        args_pkl = 'predict/qm9/property_prediction/outputs-0611/exp_class_alpha/args.pickle'
-        mean = 21.3939
-        mad = 6.4255
-        
-        try:
-            self.energy_model = load_trained_model(ckpt, args_pkl, mean, mad, self.device)
-            logging.info("Energy prediction model loaded successfully.")
-        except FileNotFoundError as e:
-            logging.warning(f"Could not load energy prediction model: {e}. Validation energy will not be calculated.")
-            self.energy_model = None
 
     def forward(self, x):
         pass
@@ -266,36 +120,13 @@ class BFN4MolGenTrain(pl.LightningModule):
         atom_type = self.charge_decode(h[:, :1])
         
         out_batch = copy.deepcopy(batch)
-        out_batch.x, out_batch.pos = atom_type, x
-        _slice_dict = {"x": out_batch._slice_dict["zx"], "pos": out_batch._slice_dict["zpos"]}
-        _inc_dict = {"x": out_batch._inc_dict["zx"], "pos": out_batch._inc_dict["zpos"]}
+        out_batch.x, out_batch.pos, out_batch.y_real = atom_type, x, batch.y_real
+        _slice_dict = {"x": out_batch._slice_dict["zx"], "pos": out_batch._slice_dict["zpos"], }
+        _inc_dict = {"x": out_batch._inc_dict["zx"], "pos": out_batch._inc_dict["zpos"], }
         out_batch._inc_dict.update(_inc_dict)
         out_batch._slice_dict.update(_slice_dict)
         out_data_list = out_batch.to_data_list()
 
-        # --- Energy Prediction Integration ---
-        if self.energy_model is not None:
-            rdkit_mols = []
-            for data in out_data_list:
-                pos = data.pos
-                atom_type_idx = torch.argmax(data.x, dim=1)
-                mol = build_molecule(pos, atom_type_idx, self.cfg.dataset.atom_decoder)
-                if mol is not None:
-                    try:
-                        Chem.SanitizeMol(mol)
-                        rdkit_mols.append(mol)
-                    except (ValueError, RuntimeError):
-                        pass
-            print(f"[DEBUG] Number of sanitized molecules: {len(rdkit_mols)}")
-
-            if rdkit_mols:
-                predicted_energies = predict_mol_list(rdkit_mols, self.energy_model, self.cfg.evaluation.batch_size, self.device)
-                mean_energy = np.nanmean(predicted_energies)
-                if not np.isnan(mean_energy):
-                    self.log("energy_loss", mean_energy, sync_dist=True)
-            else:
-                self.log("energy_loss", float('nan'), sync_dist=True)
-                
         return out_data_list
 
     def on_train_epoch_end(self) -> None:

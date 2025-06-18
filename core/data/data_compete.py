@@ -101,6 +101,9 @@ class CompeteData(InMemoryDataset):
         target_keys = [
             "energy",
         ]
+        target_keys_real = [
+            "energy_original",
+        ]
 
         def _make_data_instance(
             # _index: torch.Tensor,
@@ -108,6 +111,7 @@ class CompeteData(InMemoryDataset):
             _charges: torch.Tensor,
             _positions: torch.Tensor,
             _targets: torch.Tensor,
+            _targets_real: torch.Tensor,
         ):
             """
             Args:
@@ -127,6 +131,7 @@ class CompeteData(InMemoryDataset):
                 charges=_charges,
                 pos=_positions,
                 y=_targets,
+                y_real=_targets_real,
                 # idx=_index.reshape(-1),
             )
 
@@ -139,6 +144,14 @@ class CompeteData(InMemoryDataset):
                 ],
                 dim=-1,
             )
+            targets_real = torch.concat(
+                [
+                    torch.tensor(_data_dict[k], dtype=torch.float32).reshape(-1, 1)
+                    for k in target_keys_real
+                ],
+                dim=-1,
+            )
+
             # index = torch.tensor(_data_dict["index"], dtype=torch.int64)
             num_atoms = torch.tensor(_data_dict["natoms"], dtype=torch.int32)
             charges = torch.tensor(_data_dict["charges"], dtype=torch.int32)  # [N, K]
@@ -158,7 +171,7 @@ class CompeteData(InMemoryDataset):
                 datalist.append(
                     _make_data_instance(
                     num_atoms[i], charges[i], positions[i]
-                    , targets[i]
+                    , targets[i], targets_real[i]
                     )
                 )
             return datalist
