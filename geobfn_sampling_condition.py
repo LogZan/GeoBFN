@@ -144,7 +144,7 @@ if __name__ == "__main__":
         "input_condition", type=str, default="dataset/competition_round2/input_condition.csv", help="input_condition.csv"
     )
     parser.add_argument(
-        "--config_file", type=str, default="logs/zengchuanlong_geobfn/compete_round2_energy_normalized/config.yaml", help="Path to the config YAML file used for training."
+        "--config_file", type=str, default="logs/zengchuanlong_geobfn/compete_round2_energy_normalized_val/config.yaml", help="Path to the config YAML file used for training."
     )
     parser.add_argument(
         "--num_samples", type=int, default=10000, help="Number of molecules to generate."
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     # Normalize the condition values to [0, 1]
     min_val = condition_values.min()
     max_val = condition_values.max()
-    normalized_values = (condition_values - min_val) / (max_val - min_val)
+    normalized_values = 2 * (condition_values - min_val) / (max_val - min_val) - 1
     logging.info(f"Normalized {len(normalized_values)} condition values. Original range: [{min_val:.4f}, {max_val:.4f}]")
 
     # --- Data Loader for Sampling Input ---

@@ -286,6 +286,7 @@ class BFN4MolGenTrain(pl.LightningModule):
                         rdkit_mols.append(mol)
                     except (ValueError, RuntimeError):
                         pass
+            print(f"[DEBUG] Number of sanitized molecules: {len(rdkit_mols)}")
 
             if rdkit_mols:
                 predicted_energies = predict_mol_list(rdkit_mols, self.energy_model, self.cfg.evaluation.batch_size, self.device)

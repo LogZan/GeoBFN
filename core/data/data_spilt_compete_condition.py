@@ -186,7 +186,7 @@ def split_and_save_data(processed_data, args):
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process and split molecular data')
-    parser.add_argument('--data_dir', type=str, default='dataset/competition_round2',
+    parser.add_argument('--data_dir', type=str, default='dataset/competition_round2_1k',
                        help='Directory containing the data files')
     parser.add_argument('--seed', type=int, default=42,
                        help='Random seed for splitting')
@@ -200,7 +200,7 @@ if __name__ == "__main__":
     args = parse_args()
     
     # Load data
-    data_path = os.path.join(args.data_dir, 'competition_round2.pkl')
+    data_path = os.path.join(args.data_dir, 'competition_round2_1k.pkl')
     print(f"Loading data from {data_path}")
     with open(data_path, 'rb') as f:
         data = pickle.load(f)
